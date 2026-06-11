@@ -44,6 +44,24 @@ def test_ingest_filters_old_and_upserts(conn):
     assert titles == {"recent", "undated"}
 
 
+def test_ingest_propagates_merged_count(conn):
+    now = datetime(2026, 6, 11, tzinfo=timezone.utc)
+    rec = _rec("recurring", now)
+    ingest_records(conn, [rec], now=now)
+    counts = ingest_records(conn, [rec], now=now)  # same dedupe_key -> merge path
+    assert counts["inserted"] == 0
+    assert counts["merged"] == 1
+    assert counts["skipped_old"] == 0
+
+
+def test_ingest_handles_naive_now(conn):
+    # A naive `now` must not raise against tz-aware posted_at (symmetric tz coercion).
+    naive_now = datetime(2026, 6, 11)
+    rec = _rec("aware", datetime(2026, 6, 1, tzinfo=timezone.utc))
+    counts = ingest_records(conn, [rec], now=naive_now)
+    assert counts["inserted"] == 1
+
+
 def test_ingest_canonicalizes_urls_before_storing(conn):
     now = datetime(2026, 6, 11, tzinfo=timezone.utc)
     rec = JobRecord(

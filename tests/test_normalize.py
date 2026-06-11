@@ -83,3 +83,12 @@ def test_age_cutoff_coerces_naive_datetime_as_utc():
 def test_canonicalize_url_leaves_non_absolute_unchanged():
     schemeless = "boards.greenhouse.io/acme/jobs/123"
     assert canonicalize_url(schemeless) == schemeless
+
+
+def test_age_cutoff_coerces_naive_now_as_utc():
+    # naive `now` must not raise against a tz-aware posted_at (symmetric coercion)
+    naive_now = datetime(2026, 6, 11)
+    aware_recent = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    aware_old = datetime(2025, 9, 1, tzinfo=timezone.utc)
+    assert within_age_cutoff(aware_recent, naive_now) is True
+    assert within_age_cutoff(aware_old, naive_now) is False

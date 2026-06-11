@@ -17,7 +17,7 @@ def _canonicalize(rec: JobRecord) -> JobRecord:
     )
 
 
-def ingest_records(conn: psycopg.Connection, records: list[JobRecord], now: datetime) -> dict:
+def ingest_records(conn: psycopg.Connection, records: list[JobRecord], now: datetime) -> dict[str, int]:
     """Canonicalize URLs, apply the age cutoff, then upsert the survivors.
 
     Canonicalization happens here (the single chokepoint before storage) so tracking-param

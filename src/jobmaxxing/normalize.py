@@ -52,11 +52,13 @@ def within_age_cutoff(
 ) -> bool:
     """True if the posting should be ingested. Null dates are kept (we lack evidence it's stale).
 
-    Timezone-naive ``posted_at`` values are treated as UTC before comparison
-    so that a missing tzinfo never causes a TypeError in the pipeline.
+    Both ``posted_at`` and ``now`` are coerced to UTC when timezone-naive, so a missing
+    tzinfo on either side never raises a TypeError (naive vs. aware comparison) in the pipeline.
     """
     if posted_at is None:
         return True
     if posted_at.tzinfo is None:
         posted_at = posted_at.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     return posted_at >= now - timedelta(days=max_age_days)
