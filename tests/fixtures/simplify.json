@@ -1,0 +1,20 @@
+[
+  {
+    "id": "abc123",
+    "company_name": "Acme",
+    "title": "Software Engineer Intern",
+    "locations": ["New York, NY", "Remote"],
+    "url": "https://simplify.jobs/p/abc123?utm_source=GHList",
+    "date_posted": 1749600000,
+    "active": true
+  },
+  {
+    "id": "def456",
+    "company_name": "Globex",
+    "title": "ML Intern",
+    "locations": [],
+    "url": "https://globex.com/careers/def456",
+    "date_posted": 1749600000,
+    "active": false
+  }
+]
