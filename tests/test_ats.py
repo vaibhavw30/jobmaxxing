@@ -82,3 +82,37 @@ def test_ats_parsers_handle_empty_or_non_collection_payload():
     assert parse_greenhouse({"jobs": "oops"}, company="Acme") == []
     assert parse_lever("oops", company="Acme") == []
     assert parse_ashby({}, company="Acme") == []
+
+
+def test_ats_parsers_skip_non_string_title_or_url():
+    assert parse_greenhouse({"jobs": [{"id": 1, "title": ["a", "b"], "absolute_url": "https://u"}]}, company="Acme") == []
+    assert parse_lever([{"id": "x", "text": "T", "hostedUrl": {"href": "https://u"}}], company="Acme") == []
+
+
+def test_ats_parsers_skip_whitespace_title():
+    assert parse_ashby({"jobs": [{"id": "x", "title": "   ", "jobUrl": "https://u"}]}, company="Acme") == []
+
+
+def test_ats_parsers_coerce_non_string_location_to_none():
+    gh = parse_greenhouse({"jobs": [{"id": 1, "title": "T", "absolute_url": "https://u", "location": {"name": 42}}]}, company="Acme")[0]
+    assert gh.location is None
+    ash = parse_ashby({"jobs": [{"id": "x", "title": "T", "jobUrl": "https://u", "location": ["Remote", "NYC"]}]}, company="Acme")[0]
+    assert ash.location is None
+
+
+def test_lever_rejects_non_finite_created_at():
+    lev = parse_lever([{"id": "x", "text": "T", "hostedUrl": "https://u", "createdAt": float("inf")}], company="Acme")[0]
+    assert lev.posted_at is None
+
+
+def test_ashby_accepts_results_key():
+    payload = {"results": [{"id": "x", "title": "T", "jobUrl": "https://u"}]}
+    recs = parse_ashby(payload, company="Acme")
+    assert len(recs) == 1 and recs[0].title == "T"
+
+
+def test_lever_and_ashby_set_company_and_active():
+    lev = parse_lever([{"id": "x", "text": "T", "hostedUrl": "https://u"}], company="Acme")[0]
+    assert lev.company == "Acme" and lev.is_active is True
+    ash = parse_ashby({"jobs": [{"id": "y", "title": "T2", "jobUrl": "https://u2"}]}, company="Globex")[0]
+    assert ash.company == "Globex" and ash.is_active is True
