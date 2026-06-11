@@ -1,0 +1,12 @@
+{
+  "jobs": [
+    {
+      "id": "ash-3003",
+      "title": "ML Engineer Intern",
+      "jobUrl": "https://jobs.ashbyhq.com/acme/ash-3003",
+      "publishedAt": "2026-05-20T00:00:00Z",
+      "location": "Remote",
+      "descriptionPlain": "Training and inference, transformers, model eval."
+    }
+  ]
+}
