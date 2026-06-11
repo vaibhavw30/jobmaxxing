@@ -1,3 +1,4 @@
+import logging
 import sys
 from datetime import datetime, timezone
 
@@ -9,6 +10,8 @@ from .models import JobRecord
 from .pipeline import ingest_records
 from .sources.ats import parse_ashby, parse_greenhouse, parse_lever
 from .sources.github_lists import parse_simplify_format
+
+logger = logging.getLogger(__name__)
 
 # Simplify-format curated lists (raw listings.json URLs).
 GITHUB_LISTS = [
@@ -38,13 +41,27 @@ def _ats_source(company: str, ats: str, token: str):
     return fetch
 
 
-def build_sources() -> list[tuple[str, callable]]:
-    sources: list[tuple[str, callable]] = []
+def build_sources(watchlist: list[dict] | None = None) -> list[tuple[str, object]]:
+    """Assemble (name, fetch_callable) pairs: the GitHub lists plus valid watchlist ATS
+    entries. Malformed watchlist entries (not a mapping, missing keys, or unknown ATS)
+    are skipped with a warning so one bad config line can never abort the whole run.
+    `watchlist` is injectable for testing; defaults to load_watchlist()."""
+    sources: list[tuple[str, object]] = []
     for source, url in GITHUB_LISTS:
         sources.append((source, _github_list_source(source, url)))
-    for entry in load_watchlist():
-        label = f"{entry['ats']}:{entry['token']}"
-        sources.append((label, _ats_source(entry["company"], entry["ats"], entry["token"])))
+
+    entries = load_watchlist() if watchlist is None else watchlist
+    for entry in entries:
+        if not isinstance(entry, dict):
+            logger.warning("skipping malformed watchlist entry (not a mapping): %r", entry)
+            continue
+        company = entry.get("company")
+        ats = entry.get("ats")
+        token = entry.get("token")
+        if not company or not token or ats not in _ATS_PARSERS:
+            logger.warning("skipping invalid watchlist entry: %r", entry)
+            continue
+        sources.append((f"{company}:{ats}:{token}", _ats_source(company, ats, token)))
     return sources
 
 
@@ -56,19 +73,37 @@ def run_sources(conn: psycopg.Connection, sources, now: datetime) -> dict:
             records: list[JobRecord] = fetch()
             counts = ingest_records(conn, records, now=now)
             report[name] = {"status": "ok", **counts}
-            print(f"[{name}] ok: {counts}")
+            logger.info("[%s] ok: %s", name, counts)
         except Exception as exc:  # noqa: BLE001 - per-source isolation is the whole point
             report[name] = {"status": "failed", "error": str(exc)}
-            print(f"[{name}] FAILED: {exc}", file=sys.stderr)
+            logger.warning("[%s] FAILED: %s", name, exc)
+
+    ok = [r for r in report.values() if r["status"] == "ok"]
+    failed = [name for name, r in report.items() if r["status"] == "failed"]
+    logger.info(
+        "run summary: %d ok, %d failed; inserted=%d merged=%d skipped_old=%d; failed_sources=%s",
+        len(ok),
+        len(failed),
+        sum(r.get("inserted", 0) for r in ok),
+        sum(r.get("merged", 0) for r in ok),
+        sum(r.get("skipped_old", 0) for r in ok),
+        failed,
+    )
     return report
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
     settings = load_settings()
     now = datetime.now(timezone.utc)
     with psycopg.connect(settings.database_url) as conn:
         run_sources(conn, build_sources(), now=now)
-    # Always exit 0: a failing source is logged, not fatal.
+    # Per-source failures are isolated and logged, so a partial source failure still exits 0.
+    # A DB/config error (bad DATABASE_URL, unreachable DB) is intentionally NOT swallowed:
+    # it propagates and fails the run loudly, because that's an operator setup error, not a
+    # transient source issue.
     sys.exit(0)
 
 

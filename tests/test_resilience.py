@@ -5,7 +5,7 @@ import pytest
 
 from jobmaxxing.migrate import apply_migrations
 from jobmaxxing.models import JobRecord
-from jobmaxxing.run import run_sources
+from jobmaxxing.run import build_sources, run_sources
 
 
 @pytest.fixture
@@ -43,3 +43,24 @@ def test_run_sources_isolates_failures(conn):
     assert report["good"]["status"] == "ok"
     assert report["good"]["inserted"] == 1
     assert conn.execute("select count(*) from jobs").fetchone()[0] == 1
+
+
+def test_build_sources_includes_lists_and_valid_watchlist():
+    sources = build_sources(watchlist=[{"company": "Acme", "ats": "greenhouse", "token": "acme"}])
+    names = [n for n, _ in sources]
+    assert "github:simplify" in names
+    assert "Acme:greenhouse:acme" in names
+    assert len(names) == 4  # 3 github lists + 1 valid ATS
+
+
+def test_build_sources_skips_malformed_watchlist_entries():
+    wl = [
+        {"company": "Acme", "ats": "greenhouse", "token": "acme"},  # valid
+        {"company": "NoToken", "ats": "greenhouse"},                # missing token
+        {"company": "Bad", "ats": "workday", "token": "x"},         # unknown ats
+        "garbage",                                                   # not a mapping
+    ]
+    names = [n for n, _ in build_sources(watchlist=wl)]
+    assert "Acme:greenhouse:acme" in names
+    assert not any(("NoToken" in n) or ("Bad" in n) for n in names)
+    assert len(names) == 4  # 3 lists + 1 valid only

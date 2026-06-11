@@ -27,4 +27,5 @@ def load_watchlist(path: Path | None = None) -> list[dict]:
     if not path.exists():
         return []
     data = yaml.safe_load(path.read_text()) or {}
-    return data.get("companies", [])
+    companies = data.get("companies")
+    return companies if isinstance(companies, list) else []
