@@ -3,41 +3,48 @@ from .normalize import ATS_SOURCES
 
 
 def _is_ats(source: str) -> bool:
+    # ATS classification keys off ATS_SOURCES (normalize.py). When adding a new ATS
+    # poller, add its source prefix there or it will be treated as a listing scraper.
     return source.split(":", 1)[0] in ATS_SOURCES
 
 
 def merge_records(existing: JobRecord, incoming: JobRecord) -> JobRecord:
     """Combine an existing row with a newly-seen duplicate. Never drops a URL.
 
-    Rules:
-    - canonical url: prefer an ATS source url over a non-ATS one; otherwise keep existing.
-    - description / external_id / location / posted_at: fill only when existing is null.
-    - alt_urls: every other url seen, deduped, excluding the chosen canonical url.
-    - is_active: refreshed from the incoming (most recent) row.
-    """
-    incoming_ats = _is_ats(incoming.source)
-    existing_ats = _is_ats(existing.source)
+    A "primary" record supplies identity (url, source, company, title) and is preferred
+    for every field; the "secondary" only fills nullable gaps. An ATS source outranks a
+    non-ATS one for primacy, so a direct ATS hit upgrades a listing-scraped row (richer
+    URL, full-JD text, stable external_id). Otherwise the existing row stays primary.
 
-    if incoming_ats and not existing_ats:
-        canonical_url = incoming.url
-        source = incoming.source
+    - url / source / company / title / posted_at: from primary.
+    - description / external_id / location: primary's value, else secondary's (fill-when-null).
+    - alt_urls: every other url seen, order-preserving dedup, excluding the canonical url.
+    - is_active: from incoming (the most recent observation).
+    - dedupe_key: preserved from existing, falling back to incoming.
+
+    Note: posted_at is taken from primary, so an ATS promotion refreshes the date, but a
+    non-primary record never overwrites the primary's date (conservative — avoids a
+    less-authoritative source clobbering a good date). Email/link-only rows are not a
+    source in this sprint, so stale-date freezing is not a live risk here.
+    """
+    if _is_ats(incoming.source) and not _is_ats(existing.source):
+        primary, secondary = incoming, existing
     else:
-        canonical_url = existing.url
-        source = existing.source
+        primary, secondary = existing, incoming
 
     seen = [*existing.alt_urls, *incoming.alt_urls, existing.url, incoming.url]
-    alt_urls = [u for u in dict.fromkeys(seen) if u != canonical_url]
+    alt_urls = [u for u in dict.fromkeys(seen) if u != primary.url]
 
     return JobRecord(
-        source=source,
-        company=existing.company,
-        title=existing.title,
-        url=canonical_url,
-        external_id=existing.external_id or incoming.external_id,
-        location=existing.location or incoming.location,
-        description=existing.description or incoming.description,
-        posted_at=existing.posted_at or incoming.posted_at,
+        source=primary.source,
+        company=primary.company,
+        title=primary.title,
+        url=primary.url,
+        external_id=primary.external_id or secondary.external_id,
+        location=primary.location or secondary.location,
+        description=primary.description or secondary.description,
+        posted_at=primary.posted_at or secondary.posted_at,
         is_active=incoming.is_active,
         alt_urls=alt_urls,
-        dedupe_key=existing.dedupe_key,
+        dedupe_key=existing.dedupe_key or incoming.dedupe_key,
     )

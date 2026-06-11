@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from jobmaxxing.merge import merge_records
 from jobmaxxing.models import JobRecord
 
@@ -60,3 +62,47 @@ def test_merge_refreshes_is_active_from_incoming():
     incoming = _rec(is_active=False)
     merged = merge_records(existing, incoming)
     assert merged.is_active is False
+
+
+def test_merge_takes_company_title_from_ats_on_promotion():
+    existing = _rec(source="github:simplify", company="ACME Corp", title="SWE Intern (Summer)")
+    incoming = _rec(source="greenhouse", url="https://boards.greenhouse.io/acme/jobs/1",
+                    company="Acme", title="Software Engineer Intern")
+    merged = merge_records(existing, incoming)
+    assert merged.source == "greenhouse"
+    assert merged.company == "Acme"
+    assert merged.title == "Software Engineer Intern"
+
+
+def test_merge_keeps_existing_company_title_when_no_promotion():
+    existing = _rec(company="Acme", title="SWE Intern")
+    incoming = _rec(company="Acme Inc", title="SWE Intern Role")  # both non-ATS
+    merged = merge_records(existing, incoming)
+    assert merged.company == "Acme"
+    assert merged.title == "SWE Intern"
+
+
+def test_merge_preserves_both_ats_urls_without_promotion():
+    existing = _rec(source="greenhouse", url="https://boards.greenhouse.io/acme/jobs/1")
+    incoming = _rec(source="lever", url="https://jobs.lever.co/acme/2")
+    merged = merge_records(existing, incoming)
+    assert merged.url == "https://boards.greenhouse.io/acme/jobs/1"  # existing kept (both ATS)
+    assert merged.source == "greenhouse"
+    assert "https://jobs.lever.co/acme/2" in merged.alt_urls
+
+
+def test_merge_fills_posted_at_when_existing_null():
+    dt = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    existing = _rec(posted_at=None)
+    incoming = _rec(posted_at=dt)
+    merged = merge_records(existing, incoming)
+    assert merged.posted_at == dt
+
+
+def test_merge_refreshes_posted_at_from_ats_on_promotion():
+    old = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    new = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    existing = _rec(source="github:simplify", posted_at=old)
+    incoming = _rec(source="greenhouse", url="https://boards.greenhouse.io/acme/jobs/1", posted_at=new)
+    merged = merge_records(existing, incoming)
+    assert merged.posted_at == new
