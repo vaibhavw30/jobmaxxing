@@ -4,8 +4,25 @@ from jobmaxxing.normalize import (
     ATS_SOURCES,
     canonicalize_url,
     make_dedupe_key,
+    normalize_text,
     within_age_cutoff,
 )
+
+
+# ---------------------------------------------------------------------------
+# normalize_text (Fix 4)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_text():
+    assert normalize_text("Acme, Inc.") == "acme inc"
+    assert normalize_text("??!") == ""
+    assert normalize_text("a\t b\nc") == "a b c"
+
+
+# ---------------------------------------------------------------------------
+# make_dedupe_key
+# ---------------------------------------------------------------------------
 
 
 def test_dedupe_key_collapses_case_punctuation_whitespace():
@@ -41,3 +58,28 @@ def test_age_cutoff_rejects_old():
 
 def test_ats_sources_constant():
     assert ATS_SOURCES == {"greenhouse", "lever", "ashby"}
+
+
+# ---------------------------------------------------------------------------
+# within_age_cutoff – naive datetime coercion (Fix 1)
+# ---------------------------------------------------------------------------
+
+
+def test_age_cutoff_coerces_naive_datetime_as_utc():
+    now = datetime(2026, 6, 11, tzinfo=timezone.utc)
+    # Naive recent datetime — must NOT raise, must return True
+    naive_recent = datetime(2026, 6, 1)  # 10 days ago, no tzinfo
+    assert within_age_cutoff(naive_recent, now) is True
+    # Naive old datetime — must return False
+    naive_old = datetime(2025, 9, 1)  # > 243 days ago
+    assert within_age_cutoff(naive_old, now) is False
+
+
+# ---------------------------------------------------------------------------
+# canonicalize_url – non-absolute URLs (Fix 2)
+# ---------------------------------------------------------------------------
+
+
+def test_canonicalize_url_leaves_non_absolute_unchanged():
+    schemeless = "boards.greenhouse.io/acme/jobs/123"
+    assert canonicalize_url(schemeless) == schemeless
