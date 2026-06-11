@@ -69,3 +69,13 @@ def test_upsert_rejects_empty_dedupe_key(conn):
     apply_migrations(conn)
     with pytest.raises(ValueError):
         upsert_jobs(conn, [_rec(dedupe_key="")])
+
+
+def test_upsert_validates_batch_before_writing(conn):
+    apply_migrations(conn)
+    good = _rec(dedupe_key="acme|swe intern")
+    bad = _rec(company="Other", title="Role", dedupe_key="")
+    with pytest.raises(ValueError):
+        upsert_jobs(conn, [good, bad])
+    # Validation happens before any write, so nothing was committed.
+    assert conn.execute("select count(*) from jobs").fetchone()[0] == 0
