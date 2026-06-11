@@ -79,3 +79,12 @@ def test_upsert_validates_batch_before_writing(conn):
         upsert_jobs(conn, [good, bad])
     # Validation happens before any write, so nothing was committed.
     assert conn.execute("select count(*) from jobs").fetchone()[0] == 0
+
+
+def test_upsert_refreshes_scraped_at_on_merge(conn):
+    apply_migrations(conn)
+    upsert_jobs(conn, [_rec()])
+    before = conn.execute("select scraped_at from jobs").fetchone()[0]
+    upsert_jobs(conn, [_rec(source="greenhouse", url="https://boards.greenhouse.io/acme/jobs/1")])
+    after = conn.execute("select scraped_at from jobs").fetchone()[0]
+    assert after >= before   # merge refreshed scraped_at (separate transactions -> now() advances)

@@ -17,7 +17,8 @@ _INSERT_SQL = (
 # changing them would make it a different job. Only enrichable fields are refreshed.
 _UPDATE_SQL = (
     "update jobs set source=%s, external_id=%s, location=%s, url=%s, "
-    "alt_urls=%s, description=%s, posted_at=%s, is_active=%s where dedupe_key=%s"
+    "alt_urls=%s, description=%s, posted_at=%s, is_active=%s, scraped_at=now() "
+    "where dedupe_key=%s"
 )
 
 

@@ -44,6 +44,8 @@ def merge_records(existing: JobRecord, incoming: JobRecord) -> JobRecord:
         location=primary.location or secondary.location,
         description=primary.description or secondary.description,
         posted_at=primary.posted_at or secondary.posted_at,
+        # is_active reflects the most recent observation; an ATS poller seeing a role as
+        # open re-activates a row a list had marked closed. ATS boards list only open roles.
         is_active=incoming.is_active,
         alt_urls=alt_urls,
         dedupe_key=existing.dedupe_key or incoming.dedupe_key,
