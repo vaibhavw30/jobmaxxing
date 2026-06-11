@@ -1,0 +1,32 @@
+name: pollers
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"   # every 3 hours (lists + ATS together; cron drift is fine)
+  workflow_dispatch: {}       # manual trigger; NO pull_request (fork PRs must not touch secrets)
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pollers
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync deps (frozen)
+        run: uv sync --frozen --no-dev
+
+      - name: Run pollers
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: uv run python -m jobmaxxing.run

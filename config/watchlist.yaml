@@ -1,0 +1,12 @@
+# Companies whose ATS boards we poll directly (full JDs).
+# Fill in real entries. `token` is the public board slug.
+companies: []
+  # - company: "Example Corp"
+  #   ats: greenhouse
+  #   token: examplecorp
+  # - company: "Acme"
+  #   ats: lever
+  #   token: acme
+  # - company: "Globex"
+  #   ats: ashby
+  #   token: globex

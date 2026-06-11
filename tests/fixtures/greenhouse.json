@@ -1,0 +1,12 @@
+{
+  "jobs": [
+    {
+      "id": 1001,
+      "title": "Software Engineer Intern",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/1001",
+      "updated_at": "2026-06-01T12:00:00-04:00",
+      "location": {"name": "New York, NY"},
+      "content": "We are hiring a software engineer intern. Python, distributed systems."
+    }
+  ]
+}
