@@ -10,7 +10,7 @@ class LLMUnavailable(RuntimeError):
     """Raised when no configured LLM candidate could serve a request."""
 
 
-def complete(task, messages, *, max_tokens, response_format=None, config=None) -> str:
+def complete(task, messages, *, max_tokens, response_format=None, cache=None, config=None) -> str:
     """Try each configured (provider, model) for `task` in order. Skip providers with no
     API key; fall through on any error. Raise LLMUnavailable if none succeed."""
     cfg = config if config is not None else load_llm_config()
@@ -24,7 +24,10 @@ def complete(task, messages, *, max_tokens, response_format=None, config=None) -
             continue
         tried.append(f"{provider}/{model}")
         try:
-            return call_provider(provider, model, messages, max_tokens=max_tokens, response_format=response_format)
+            return call_provider(
+                provider, model, messages,
+                max_tokens=max_tokens, response_format=response_format, cache=cache,
+            )
         except ValueError:
             raise  # config/programming error (e.g. unknown provider) — surface it, don't mask as transient
         except Exception as exc:  # noqa: BLE001 - transient provider fallback is the whole point
