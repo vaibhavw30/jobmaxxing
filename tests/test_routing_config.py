@@ -25,6 +25,7 @@ def test_routing_config_has_all_types_with_signals():
         assert spec["definition"]
         assert isinstance(spec["title_signals"], list) and spec["title_signals"]
         assert isinstance(spec["jd_signals"], list)
+        assert isinstance(spec["exclude_signals"], list)  # Tasks 6/7 read this key unguarded
     assert cfg["weights"]["title"] >= cfg["weights"]["jd"]
     assert "min_margin_ratio" in cfg["thresholds"]
 
