@@ -5,3 +5,9 @@ tasks:
     - {provider: openai, model: gpt-4o-mini}
     - {provider: xai, model: grok-3-mini}
     - {provider: anthropic, model: claude-3-5-haiku-latest}
+  tailor:
+    - {provider: anthropic, model: claude-sonnet-4-latest}
+    - {provider: openai, model: gpt-4o}
+  review:
+    - {provider: anthropic, model: claude-sonnet-4-latest}
+    - {provider: openai, model: gpt-4o}

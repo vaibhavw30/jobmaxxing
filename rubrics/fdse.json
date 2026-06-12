@@ -1,0 +1,4 @@
+{
+  "keyword_dict": ["customer-facing", "data integration", "deployment", "ontology", "foundry", "java", "stakeholders", "solutions", "etl"],
+  "aliases": {"customer-facing": ["customer facing"], "etl": ["extract transform load"]}
+}

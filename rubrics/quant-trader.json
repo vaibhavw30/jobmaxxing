@@ -1,0 +1,4 @@
+{
+  "keyword_dict": ["probability", "expected value", "market making", "pnl", "options", "game theory", "mental math", "statistics", "derivatives"],
+  "aliases": {"expected value": ["ev"], "pnl": ["p&l", "p and l"]}
+}
