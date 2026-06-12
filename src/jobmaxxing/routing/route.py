@@ -72,6 +72,10 @@ def route_new(conn: psycopg.Connection, *, config=None, llm_complete=None, max_l
             )
         counts[decision.method] += 1
 
+    # Informational: how many rows the operator has pinned manually (excluded above).
+    counts["manual_skipped"] = conn.execute(
+        "select count(*) from jobs where route_method = 'manual'"
+    ).fetchone()[0]
     logger.info("route summary: %s (budget left=%d)", counts, budget.remaining)
     return counts
 
@@ -85,15 +89,17 @@ def set_manual(conn: psycopg.Connection, job_id, resume_type: str) -> None:
             "update jobs set resume_type=%s, route_method='manual', route_confidence=1.0, status='routed' where id=%s",
             (resume_type, job_id),
         )
-    if cur.rowcount == 0:
-        raise ValueError(f"no job with id {job_id}")
+        if cur.rowcount == 0:
+            raise ValueError(f"no job with id {job_id}")  # rolls back the (no-op) savepoint
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     settings = load_settings()
     with psycopg.connect(settings.database_url) as conn:
-        if len(sys.argv) >= 4 and sys.argv[1] == "set":
+        if len(sys.argv) >= 2 and sys.argv[1] == "set":
+            if len(sys.argv) != 4:
+                sys.exit("usage: python -m jobmaxxing.route set <job_id> <resume_type>")
             set_manual(conn, sys.argv[2], sys.argv[3])
             print(f"set job {sys.argv[2]} -> {sys.argv[3]} (manual)")
         else:

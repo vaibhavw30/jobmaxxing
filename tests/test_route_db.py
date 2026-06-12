@@ -77,7 +77,8 @@ def test_route_new_skips_manual_rows(conn):
             resume_type="quant-trader", route_method="manual")
 
     counts = route_new(conn, config=CONFIG, llm_complete=lambda *a, **k: "{}")
-    assert counts["manual_skipped"] >= 0          # not re-routed
+    assert counts["manual_skipped"] == 1          # the one manual row is reported, not re-routed
+    assert counts["rules"] == 0 and counts["llm"] == 0
     row = conn.execute("select resume_type, route_method from jobs").fetchone()
     assert row == ("quant-trader", "manual")      # untouched
 
