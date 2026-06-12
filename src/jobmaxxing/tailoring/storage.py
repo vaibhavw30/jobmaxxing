@@ -27,4 +27,4 @@ class InMemoryStore:
         self.artifacts[(str(job_id), name)] = data
 
     def artifact_prefix(self, job_id) -> str:
-        return f"memory://tailored/{job_id}/"
+        return f"memory://tailored/{str(job_id)}/"  # str() for symmetry with put_artifact's key
