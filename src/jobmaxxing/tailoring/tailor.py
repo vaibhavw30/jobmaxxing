@@ -1,0 +1,76 @@
+import json
+import logging
+
+import psycopg
+from psycopg.types.json import Json
+
+from .diffing import unified_diff
+from .latex import enforce_one_page
+from .passes import apply_critique, build_tailored, critique_resume, shrink_to_one_page
+from .rubric import load_rubric
+from .scorer import delta, score
+
+logger = logging.getLogger(__name__)
+
+
+def tailor_job(conn, job_id, *, store, complete, compile_fn, rubric_loader=load_rubric) -> dict:
+    """Run the two-pass tailoring loop for one approved job. All boundaries injected."""
+    row = conn.execute(
+        "select description, resume_type, status from jobs where id=%s", (job_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"no job with id {job_id}")
+    jd, resume_type, status = row
+    if status != "approved_for_tailoring":
+        raise ValueError(f"job {job_id} is not approved_for_tailoring (status={status!r})")
+
+    base_tex = store.get_base_resume(resume_type)
+    rubric = rubric_loader(resume_type)
+
+    before = score(base_tex, jd or "", rubric)                        # Pass 0
+    tailored = build_tailored(base_tex, jd or "", complete=complete)   # Pass 1
+    critique = critique_resume(tailored, jd or "", complete=complete)  # Pass 2a
+    patched = apply_critique(tailored, critique, jd or "", complete=complete)  # Pass 2b
+
+    one_page = enforce_one_page(                                       # Pass 3
+        patched,
+        compile_fn=compile_fn,
+        shrink_fn=lambda tex, pages: shrink_to_one_page(tex, pages, complete=complete),
+    )
+    final_tex = one_page.tex
+    after = score(final_tex, jd or "", rubric)                        # Pass 4
+
+    review = {
+        "score_before": before,
+        "score_after": after,
+        "delta": delta(before, after),
+        "weaknesses": critique["weaknesses"],
+        "missing_keywords": critique["missing_keywords"],
+        "page_count": one_page.page_count,
+        "retries": one_page.retries,
+        "fit": one_page.fit,
+    }
+    diff = unified_diff(base_tex, final_tex)
+
+    store.put_artifact(job_id, "tailored.tex", final_tex.encode("utf-8"))
+    store.put_artifact(job_id, "tailored.pdf", one_page.pdf_bytes)
+    store.put_artifact(job_id, "review.json", json.dumps(review, indent=2).encode("utf-8"))
+    store.put_artifact(job_id, "diff.txt", diff.encode("utf-8"))
+
+    with conn.transaction():
+        conn.execute(
+            "update jobs set score_before=%s, score_after=%s, artifact_prefix=%s, status='tailored' where id=%s",
+            (Json(before), Json(after), store.artifact_prefix(job_id), job_id),
+        )
+    logger.info("tailored job %s: delta=%s fit=%s", job_id, review["delta"], one_page.fit)
+    return review
+
+
+def approve(conn, job_id) -> None:
+    """Operator gate: mark a job approved_for_tailoring."""
+    with conn.transaction():
+        cur = conn.execute(
+            "update jobs set status='approved_for_tailoring' where id=%s", (job_id,)
+        )
+    if cur.rowcount == 0:
+        raise ValueError(f"no job with id {job_id}")
