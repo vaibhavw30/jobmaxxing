@@ -56,3 +56,27 @@ def compile_pdf(tex: str, *, runs: int = 2, timeout: float = 60.0) -> CompileRes
     except PdfReadError as exc:
         raise LatexError(f"pdflatex produced an unreadable PDF: {exc}") from exc
     return CompileResult(pdf_bytes=pdf_bytes, page_count=page_count, log=log)
+
+
+@dataclass
+class OnePageResult:
+    tex: str
+    pdf_bytes: bytes
+    page_count: int
+    retries: int
+    fit: bool
+
+
+def enforce_one_page(tex: str, *, compile_fn, shrink_fn, max_retries: int = 3) -> OnePageResult:
+    """Compile; if it overflows one page, ask shrink_fn to cut and recompile, up to
+    max_retries. The page count is always measured by compile_fn, never self-reported.
+    If it never fits, return the last attempt flagged fit=False."""
+    result = compile_fn(tex)
+    if result.page_count <= 1:
+        return OnePageResult(tex, result.pdf_bytes, result.page_count, 0, True)
+    for attempt in range(1, max_retries + 1):
+        tex = shrink_fn(tex, result.page_count)
+        result = compile_fn(tex)
+        if result.page_count <= 1:
+            return OnePageResult(tex, result.pdf_bytes, result.page_count, attempt, True)
+    return OnePageResult(tex, result.pdf_bytes, result.page_count, max_retries, False)
