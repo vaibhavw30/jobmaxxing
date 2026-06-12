@@ -78,3 +78,19 @@ def test_complete_threads_cache(monkeypatch):
     cfg = {"tasks": {"tailor": [{"provider": "anthropic", "model": "m"}]}}
     client.complete("tailor", [{"role": "user", "content": "x"}], max_tokens=10, cache="BASE", config=cfg)
     assert captured["cache"] == "BASE"
+
+
+def test_openai_cache_with_existing_system_message(monkeypatch):
+    # the real Task-11 shape: a system constraints message PLUS cache=base_resume.
+    # The cache-bearing system message must come first (cacheable prefix), constraints next.
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
+    monkeypatch.setattr(openai, "OpenAI", _FakeOpenAIClient)
+    providers.call_provider(
+        "openai", "gpt-4o",
+        [{"role": "system", "content": "constraints"}, {"role": "user", "content": "hi"}],
+        max_tokens=50, cache="BASE",
+    )
+    msgs = _FakeOpenAIClient.last_call["messages"]
+    assert msgs[0] == {"role": "system", "content": "BASE"}          # cached prefix first
+    assert msgs[1] == {"role": "system", "content": "constraints"}
+    assert msgs[2] == {"role": "user", "content": "hi"}
