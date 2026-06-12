@@ -61,6 +61,8 @@ def critique_resume(tailored_tex: str, jd: str, *, complete) -> dict:
         {"role": "system", "content": _REVIEW_SYSTEM},
         {"role": "user", "content": f"Job description:\n{jd}\n\nRésumé (LaTeX):\n{tailored_tex}"},
     ]
+    # response_format is honored by OpenAI/xAI; the Anthropic adapter ignores it, so the
+    # prompt demands STRICT JSON and parse_critique is the real (lenient) schema gate.
     text = complete("review", messages, max_tokens=1000, response_format={"type": "json_object"})
     return parse_critique(text)
 
