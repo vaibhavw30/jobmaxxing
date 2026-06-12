@@ -49,3 +49,22 @@ def test_raises_when_all_fail(monkeypatch):
 def test_raises_when_no_candidates(monkeypatch):
     with pytest.raises(LLMUnavailable):
         complete("route", MESSAGES, max_tokens=50, config={"tasks": {}})
+
+
+def test_raises_when_all_skipped_no_key(monkeypatch):
+    monkeypatch.setattr(client, "provider_available", lambda p: False)
+    monkeypatch.setattr(client, "call_provider", lambda *a, **k: "should-not-be-called")
+    with pytest.raises(LLMUnavailable):
+        complete("route", MESSAGES, max_tokens=50, config=CONFIG)
+
+
+def test_config_error_propagates_as_valueerror(monkeypatch):
+    # an unknown provider name is a config bug, not a transient failure -> must surface
+    monkeypatch.setattr(client, "provider_available", lambda p: True)
+
+    def bad(p, m, msgs, **kw):
+        raise ValueError("unknown provider")
+
+    monkeypatch.setattr(client, "call_provider", bad)
+    with pytest.raises(ValueError):
+        complete("route", MESSAGES, max_tokens=50, config=CONFIG)
