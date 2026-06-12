@@ -1,5 +1,8 @@
 from typing import Protocol
 
+import boto3
+from botocore.exceptions import ClientError
+
 
 class BaseResumeMissing(RuntimeError):
     """Raised when no base resume exists for a resume type."""
@@ -28,3 +31,25 @@ class InMemoryStore:
 
     def artifact_prefix(self, job_id) -> str:
         return f"memory://tailored/{str(job_id)}/"  # str() for symmetry with put_artifact's key
+
+
+class S3Store:
+    """S3-backed store. Base resumes at base/{type}/main.tex; artifacts at tailored/{job_id}/{name}."""
+
+    def __init__(self, bucket: str, client=None):
+        self.bucket = bucket
+        self.client = client if client is not None else boto3.client("s3")
+
+    def get_base_resume(self, resume_type: str) -> str:
+        key = f"base/{resume_type}/main.tex"
+        try:
+            resp = self.client.get_object(Bucket=self.bucket, Key=key)
+        except ClientError as exc:
+            raise BaseResumeMissing(f"no base resume at s3://{self.bucket}/{key}") from exc
+        return resp["Body"].read().decode("utf-8")
+
+    def put_artifact(self, job_id, name: str, data: bytes) -> None:
+        self.client.put_object(Bucket=self.bucket, Key=f"tailored/{str(job_id)}/{name}", Body=data)
+
+    def artifact_prefix(self, job_id) -> str:
+        return f"s3://{self.bucket}/tailored/{str(job_id)}/"
