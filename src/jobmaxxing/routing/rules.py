@@ -49,3 +49,55 @@ def score_jd(description: str | None, config: dict) -> dict[str, float]:
         excl = _count_hits(norm, spec.get("exclude_signals", []))
         out[t] = float(hits) - float(excl)
     return out
+
+
+from .types import RulesOutcome
+
+
+def _margin_ratio(top: float, second: float) -> float:
+    return max(0.0, min(1.0, (top - second) / max(top, 1.0)))
+
+
+def _rank(scores: dict[str, float]) -> tuple[str, float, float]:
+    """Return (best_type, best_score, second_score) for a non-empty score dict."""
+    ordered = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    best_type, best = ordered[0]
+    second = ordered[1][1] if len(ordered) > 1 else 0.0
+    return best_type, best, second
+
+
+def route_by_rules(title: str, description: str | None, config: dict) -> RulesOutcome:
+    """Deterministic routing decision (spec §6.2). Title signals are authoritative."""
+    thr = config.get("thresholds", {})
+    min_margin = thr.get("min_margin_ratio", 0.5)
+    min_top = thr.get("min_top_score", 1.0)
+
+    title_hits = score_title(title, config)
+    titled = [t for t, h in title_hits.items() if h > 0]
+
+    # (1) exactly one title match -> route deterministically, title is authoritative.
+    if len(titled) == 1:
+        t = titled[0]
+        confidence = min(1.0, 0.7 + 0.1 * (title_hits[t] - 1))
+        return RulesOutcome(decision="routed", resume_type=t, confidence=confidence)
+
+    jd = score_jd(description, config)
+
+    # (2) multiple title matches -> break the tie using JD margin among those candidates.
+    if len(titled) > 1:
+        cand_scores = {t: jd[t] for t in titled}
+        best_t, best, second = _rank(cand_scores)
+        margin = _margin_ratio(best, second)
+        if best > 0 and margin > min_margin:
+            return RulesOutcome(decision="routed", resume_type=best_t, confidence=margin)
+        return RulesOutcome(decision="ambiguous", candidates=sorted(titled))
+
+    # (3) no title signal -> route from JD alone if a clear winner, else ambiguous/no_signal.
+    best_t, best, second = _rank(jd)
+    if best <= 0:
+        return RulesOutcome(decision="no_signal")
+    margin = _margin_ratio(best, second)
+    if best >= min_top and margin > min_margin:
+        return RulesOutcome(decision="routed", resume_type=best_t, confidence=margin)
+    candidates = sorted([t for t, s in jd.items() if s > 0])
+    return RulesOutcome(decision="ambiguous", candidates=candidates)
