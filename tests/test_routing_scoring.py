@@ -44,3 +44,19 @@ def test_score_jd_caps_and_applies_exclusions():
 
 def test_score_jd_no_description_is_zero():
     assert score_jd(None, CONFIG) == {"swe": 0.0, "ai": 0.0, "mle": 0.0}
+
+
+def test_count_hits_matches_multi_word_signal_across_collapsed_whitespace():
+    # multi-word signal must match even when the text had irregular spacing
+    assert _count_hits(_norm("we do  market   making here"), ["market making"]) == 1
+    assert _count_hits(_norm("low-latency trading"), ["low-latency"]) == 1
+
+
+def test_count_hits_dedupes_repeated_config_signals():
+    assert _count_hits("llm llm llm", ["llm", "llm"]) == 1   # repeat in config counts once
+
+
+def test_score_jd_can_go_negative_when_exclusions_dominate():
+    cfg = {"thresholds": {"jd_hits_cap": 5},
+           "types": {"mle": {"jd_signals": ["training"], "exclude_signals": ["llm", "agentic"]}}}
+    assert score_jd("llm agentic training", cfg)["mle"] == -1.0   # 1 hit - 2 exclusions

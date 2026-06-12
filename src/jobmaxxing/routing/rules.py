@@ -20,8 +20,9 @@ def _boundary_pattern(signal: str) -> re.Pattern:
 
 
 def _count_hits(text: str, signals: list[str]) -> int:
-    """Count unique signals appearing as boundary-delimited substrings of `text` (already normalized)."""
-    return sum(1 for s in signals if _boundary_pattern(s).search(text))
+    """Count distinct signals appearing as boundary-delimited substrings of `text` (already
+    normalized). De-duplicated so an accidental repeat in the config can't double-count."""
+    return sum(1 for s in set(signals) if _boundary_pattern(s).search(text))
 
 
 def score_title(title: str, config: dict) -> dict[str, int]:
@@ -31,7 +32,13 @@ def score_title(title: str, config: dict) -> dict[str, int]:
 
 
 def score_jd(description: str | None, config: dict) -> dict[str, float]:
-    """jd_hits (capped) minus exclusion hits, per type. Empty description -> all zeros."""
+    """jd_hits (capped) minus exclusion hits, per type. Empty description -> all zeros.
+
+    The cap bounds only the positive signal (so a keyword-stuffed JD can't dominate);
+    exclusions are then subtracted, so a heavily-excluded type can go NEGATIVE. That is
+    intentional — an exclusion actively disqualifies a type. Task 7 treats `best <= 0`
+    as "no usable JD signal", so negative scores degrade to defer/ambiguous, never a route.
+    """
     if not description:
         return {t: 0.0 for t in config["types"]}
     norm = _norm(description)
