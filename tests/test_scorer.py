@@ -42,3 +42,29 @@ def test_delta_subtracts_axes():
     before = {"static": 0.4, "dynamic": 0.5}
     after = {"static": 0.7, "dynamic": 0.9}
     assert delta(before, after) == {"static": 0.3, "dynamic": 0.4}
+
+
+def test_multi_word_term_missing_when_jd_wants_it():
+    rubric = {"keyword_dict": ["machine learning", "python"], "aliases": {}}
+    s = score(resume_text="I know python", jd_text="we need machine learning", rubric=rubric)
+    assert s["missing"] == ["machine learning"]
+    assert "machine learning" not in s["matched"]
+
+
+def test_jd_terms_outside_dict_never_leak_into_missing():
+    rubric = {"keyword_dict": ["python"], "aliases": {}}
+    s = score(resume_text="python", jd_text="we need rust and golang", rubric=rubric)
+    assert s["missing"] == []          # rust/golang aren't dict terms, so not our concern
+
+
+def test_none_inputs_do_not_crash():
+    rubric = {"keyword_dict": ["python"], "aliases": {}}
+    s = score(resume_text=None, jd_text=None, rubric=rubric)
+    assert s["static"] == 0.0 and s["dynamic"] == 1.0 and s["matched"] == [] and s["missing"] == []
+
+
+def test_non_list_alias_value_is_ignored_not_exploded():
+    # a malformed alias (string instead of list) must not spread into single-char patterns
+    rubric = {"keyword_dict": ["python"], "aliases": {"python": "py"}}
+    s = score(resume_text="I use py everywhere", jd_text="", rubric=rubric)
+    assert s["matched"] == []          # 'py' not credited; no char-level 'p'/'y' matching

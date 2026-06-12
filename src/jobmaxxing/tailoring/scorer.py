@@ -19,14 +19,25 @@ def _pattern(token: str) -> re.Pattern:
 
 def _covered(text_norm: str, term: str, aliases: dict) -> bool:
     """True if the term or any of its aliases appears (boundary-aware)."""
-    for token in [term, *aliases.get(term, [])]:
+    alias_list = aliases.get(term, [])
+    if not isinstance(alias_list, list):
+        alias_list = []  # guard: a malformed (non-list) alias value must not spread into chars
+    for token in [term, *alias_list]:
         if _pattern(token).search(text_norm):
             return True
     return False
 
 
 def score(resume_text: str, jd_text: str, rubric: dict) -> dict:
-    """Deterministic keyword coverage. Returns {static, dynamic, matched, missing}."""
+    """Deterministic keyword coverage. Returns {static, dynamic, matched, missing}.
+
+    - static:  fraction of the rubric's keyword_dict terms present in the résumé.
+    - dynamic: of the dict terms the JD mentions, the fraction the résumé also covers
+               (1.0 if the JD mentions none of the dict terms).
+    - matched: ALL dict terms present in the résumé (JD-independent).
+    - missing: dict terms the JD mentions but the résumé lacks (JD-conditioned — the
+               complement of `matched` within the JD's terms, NOT of the whole dict).
+    """
     terms = rubric.get("keyword_dict", [])
     aliases = rubric.get("aliases", {})
     resume_norm = _norm(resume_text)
