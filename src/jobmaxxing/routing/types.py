@@ -22,9 +22,13 @@ class RulesOutcome:
     candidates: list[str] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(frozen=True)
 class RouteDecision:
-    """Final routing decision for one posting. resume_type/method None => defer."""
+    """Final routing decision for one posting. resume_type/method None => defer.
+
+    Frozen so the shared `_DEFER` singleton in route.py can be returned from every defer
+    path without any caller being able to mutate it.
+    """
 
     resume_type: str | None
     method: str | None  # "rules" | "llm" | None

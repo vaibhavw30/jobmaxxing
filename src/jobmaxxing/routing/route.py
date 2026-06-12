@@ -8,7 +8,9 @@ _DEFER = RouteDecision(resume_type=None, method=None, confidence=0.0)
 _SINGLE_CANDIDATE_CONFIDENCE = 0.5
 
 
-def route_one(title, description, config, *, llm_complete, budget: Budget) -> RouteDecision:
+def route_one(
+    title: str | None, description: str | None, config: dict, *, llm_complete, budget: Budget
+) -> RouteDecision:
     """Route a single posting. Title-first deterministic; the LLM is used only for
     ambiguous JD-bearing rows with >1 candidate, within budget; otherwise defer."""
     outcome = route_by_rules(title, description, config)
