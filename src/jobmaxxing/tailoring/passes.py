@@ -63,3 +63,37 @@ def critique_resume(tailored_tex: str, jd: str, *, complete) -> dict:
     ]
     text = complete("review", messages, max_tokens=1000, response_format={"type": "json_object"})
     return parse_critique(text)
+
+
+_PATCH_SYSTEM = (
+    "Revise the LaTeX résumé to address the reviewer feedback. Same hard constraints: "
+    "surgical edits, NO fabrication, ONE page, preserve template. Output ONLY the full LaTeX document."
+)
+_SHRINK_SYSTEM = (
+    "The compiled résumé overflowed one page. Cut it to EXACTLY one page with surgical removals "
+    "(trim the least-relevant content), NO fabrication, preserve template. Output ONLY the full LaTeX document."
+)
+
+
+def apply_critique(tailored_tex: str, critique: dict, jd: str, *, complete) -> str:
+    """Pass 2b: apply the critique's fixes -> patched .tex."""
+    weaknesses = "\n".join(f"- {w}" for w in critique.get("weaknesses", []))
+    missing = ", ".join(critique.get("missing_keywords", []))
+    messages = [
+        {"role": "system", "content": _PATCH_SYSTEM},
+        {"role": "user", "content": (
+            f"Job description:\n{jd}\n\nReviewer weaknesses:\n{weaknesses}\n\n"
+            f"Missing keywords to incorporate where truthful: {missing}\n\n"
+            f"Current résumé (LaTeX):\n{tailored_tex}"
+        )},
+    ]
+    return complete("review", messages, max_tokens=4000)
+
+
+def shrink_to_one_page(tex: str, page_count: int, *, complete) -> str:
+    """The shrink_fn used by the one-page guard."""
+    messages = [
+        {"role": "system", "content": _SHRINK_SYSTEM},
+        {"role": "user", "content": f"The résumé compiled to {page_count} pages. Cut it to one page.\n\n{tex}"},
+    ]
+    return complete("tailor", messages, max_tokens=4000)
