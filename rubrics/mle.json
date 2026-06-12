@@ -1,0 +1,4 @@
+{
+  "keyword_dict": ["machine learning", "training", "inference", "pytorch", "tensorflow", "xgboost", "feature engineering", "model evaluation", "data pipeline"],
+  "aliases": {"machine learning": ["ml"], "feature engineering": ["features"]}
+}

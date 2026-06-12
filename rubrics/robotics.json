@@ -1,0 +1,4 @@
+{
+  "keyword_dict": ["ros", "control systems", "state estimation", "perception", "manipulation", "reinforcement learning", "simulation", "kinematics", "slam"],
+  "aliases": {"reinforcement learning": ["rl"], "control systems": ["controls"]}
+}
