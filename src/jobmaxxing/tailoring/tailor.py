@@ -1,7 +1,6 @@
 import json
 import logging
 
-import psycopg
 from psycopg.types.json import Json
 
 from .diffing import unified_diff
@@ -62,15 +61,19 @@ def tailor_job(conn, job_id, *, store, complete, compile_fn, rubric_loader=load_
             "update jobs set score_before=%s, score_after=%s, artifact_prefix=%s, status='tailored' where id=%s",
             (Json(before), Json(after), store.artifact_prefix(job_id), job_id),
         )
-    logger.info("tailored job %s: delta=%s fit=%s", job_id, review["delta"], one_page.fit)
+    # A résumé that never fit one page (shrink retries exhausted) is a quality event, not routine.
+    log = logger.warning if not one_page.fit else logger.info
+    log("tailored job %s: delta=%s fit=%s", job_id, review["delta"], one_page.fit)
     return review
 
 
 def approve(conn, job_id) -> None:
-    """Operator gate: mark a job approved_for_tailoring."""
-    with conn.transaction():
-        cur = conn.execute(
-            "update jobs set status='approved_for_tailoring' where id=%s", (job_id,)
-        )
-    if cur.rowcount == 0:
+    """Operator gate: mark a job approved_for_tailoring. Re-approving an already-tailored
+    job is allowed (re-tailoring) but logged, so it is never a silent overwrite."""
+    row = conn.execute("select status from jobs where id=%s", (job_id,)).fetchone()
+    if row is None:
         raise ValueError(f"no job with id {job_id}")
+    if row[0] == "tailored":
+        logger.warning("re-approving already-tailored job %s for re-tailoring", job_id)
+    with conn.transaction():
+        conn.execute("update jobs set status='approved_for_tailoring' where id=%s", (job_id,))

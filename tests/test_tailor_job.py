@@ -76,3 +76,28 @@ def test_approve_sets_status(conn):
     job_id = _insert(conn, status="routed")
     approve(conn, job_id)
     assert conn.execute("select status from jobs where id=%s", (job_id,)).fetchone()[0] == "approved_for_tailoring"
+
+
+def _compile_two_pages(tex):
+    return CompileResult(pdf_bytes=b"%PDF over", page_count=2, log="")
+
+
+def test_tailor_job_persists_fit_false_when_never_one_page(conn):
+    job_id = _insert(conn, status="approved_for_tailoring")
+    store = InMemoryStore(base_resumes={"swe": r"\documentclass{article} base"})
+
+    review = tailor_job(
+        conn, job_id, store=store, complete=_fake_complete,
+        compile_fn=_compile_two_pages, rubric_loader=lambda t: RUBRIC,
+    )
+    assert review["fit"] is False and review["retries"] == 3
+    saved = json.loads(store.artifacts[(str(job_id), "review.json")])
+    assert saved["fit"] is False
+    # still recorded as tailored (operator reviews via review.json's fit flag)
+    assert conn.execute("select status from jobs where id=%s", (job_id,)).fetchone()[0] == "tailored"
+
+
+def test_approve_re_approves_tailored_job(conn):
+    job_id = _insert(conn, status="tailored")
+    approve(conn, job_id)   # allowed (re-tailor) + warns; must not raise
+    assert conn.execute("select status from jobs where id=%s", (job_id,)).fetchone()[0] == "approved_for_tailoring"
