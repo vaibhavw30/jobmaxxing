@@ -1,6 +1,7 @@
 import io
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -67,10 +68,16 @@ class OnePageResult:
     fit: bool
 
 
-def enforce_one_page(tex: str, *, compile_fn, shrink_fn, max_retries: int = 3) -> OnePageResult:
+def enforce_one_page(
+    tex: str,
+    *,
+    compile_fn: Callable[[str], CompileResult],
+    shrink_fn: Callable[[str, int], str],
+    max_retries: int = 3,
+) -> OnePageResult:
     """Compile; if it overflows one page, ask shrink_fn to cut and recompile, up to
-    max_retries. The page count is always measured by compile_fn, never self-reported.
-    If it never fits, return the last attempt flagged fit=False."""
+    max_retries shrink+recompile cycles. The page count is always measured by compile_fn,
+    never self-reported. If it never fits, return the last attempt flagged fit=False."""
     result = compile_fn(tex)
     if result.page_count <= 1:
         return OnePageResult(tex, result.pdf_bytes, result.page_count, 0, True)
