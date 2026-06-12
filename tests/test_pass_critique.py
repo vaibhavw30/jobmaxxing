@@ -26,3 +26,22 @@ def test_critique_resume_calls_review_task():
     out = critique_resume("TAILORED TEX", "JD text", complete=fake_complete)
     assert captured["task"] == "review"
     assert out["missing_keywords"] == ["rust"]
+
+
+def test_empty_critique_lists_are_not_shared():
+    # a mutating caller must not poison subsequent empty critiques
+    r1 = parse_critique("garbage")
+    r1["weaknesses"].append("mutated")
+    r2 = parse_critique("garbage")
+    assert r2["weaknesses"] == []
+
+
+def test_critique_resume_requests_json_object():
+    captured = {}
+
+    def fake_complete(task, messages, *, max_tokens, response_format=None, **kw):
+        captured["response_format"] = response_format
+        return '{"weaknesses": [], "missing_keywords": []}'
+
+    critique_resume("TEX", "JD", complete=fake_complete)
+    assert captured["response_format"] == {"type": "json_object"}

@@ -2,7 +2,6 @@ import json
 import re
 
 _JSON_OBJ = re.compile(r"\{.*\}", re.DOTALL)
-_EMPTY_CRITIQUE = {"weaknesses": [], "missing_keywords": []}
 
 _REVIEW_SYSTEM = (
     "You are two reviewers of a LaTeX résumé against a job description.\n"
@@ -37,22 +36,22 @@ def build_tailored(base_tex: str, jd: str, *, complete) -> str:
 def parse_critique(text) -> dict:
     """Strict parse with a lenient fallback: any problem -> empty critique."""
     if not isinstance(text, str):
-        return dict(_EMPTY_CRITIQUE)
+        return {"weaknesses": [], "missing_keywords": []}  # fresh lists: never share the empty sentinel
     match = _JSON_OBJ.search(text)
     if not match:
-        return dict(_EMPTY_CRITIQUE)
+        return {"weaknesses": [], "missing_keywords": []}  # fresh lists: never share the empty sentinel
     try:
         data = json.loads(match.group(0))
     except (ValueError, TypeError):
-        return dict(_EMPTY_CRITIQUE)
+        return {"weaknesses": [], "missing_keywords": []}  # fresh lists: never share the empty sentinel
     if not isinstance(data, dict):
-        return dict(_EMPTY_CRITIQUE)
+        return {"weaknesses": [], "missing_keywords": []}  # fresh lists: never share the empty sentinel
     weaknesses = data.get("weaknesses")
     missing = data.get("missing_keywords")
     if not isinstance(weaknesses, list) or not all(isinstance(w, str) for w in weaknesses):
-        return dict(_EMPTY_CRITIQUE)
+        return {"weaknesses": [], "missing_keywords": []}  # fresh lists: never share the empty sentinel
     if not isinstance(missing, list) or not all(isinstance(m, str) for m in missing):
-        return dict(_EMPTY_CRITIQUE)
+        return {"weaknesses": [], "missing_keywords": []}  # fresh lists: never share the empty sentinel
     return {"weaknesses": weaknesses[:3], "missing_keywords": missing}
 
 
