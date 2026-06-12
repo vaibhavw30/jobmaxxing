@@ -1,0 +1,7 @@
+# task -> ordered (provider, model) candidates. The wrapper tries each in order,
+# skipping a provider whose API key env var is unset, and falling through on error.
+tasks:
+  route:
+    - {provider: openai, model: gpt-4o-mini}
+    - {provider: xai, model: grok-3-mini}
+    - {provider: anthropic, model: claude-3-5-haiku-latest}
