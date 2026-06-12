@@ -1,7 +1,10 @@
 _TAILOR_SYSTEM = (
-    "You tailor a LaTeX résumé to a specific job description.\n"
+    "You tailor a LaTeX résumé to a specific job description.\n\n"
+    "ABSOLUTE RULE — NO FABRICATION: never invent experience, skills, employers, dates, "
+    "metrics, or claims. You may ONLY reorder, rephrase, and re-emphasize facts already "
+    "present in the base résumé. If a desired keyword is not truthfully supported, leave it out.\n\n"
     "HARD CONSTRAINTS:\n"
-    "- Surgical edits only: reorder, rephrase, and re-emphasize EXISTING facts. Do NOT fabricate.\n"
+    "- Surgical edits only.\n"
     "- Keep it to ONE page.\n"
     "- Preserve the template's structure, packages, and macros.\n"
     "Output ONLY the full LaTeX document, nothing else."
