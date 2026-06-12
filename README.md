@@ -84,6 +84,30 @@ After ingestion, postings are classified into one of 8 resume types
   `config/llm.yaml`; a provider with no key is simply skipped, so routing still works
   on the deterministic rules alone even with no LLM keys set.
 
+## Tailoring
+
+For a job the operator has approved, produce a tailored one-page résumé with a
+deterministic before/after keyword-coverage score and LLM weakness/missing-keyword
+feedback. **Operator-gated and run locally** — never automatic (cost control).
+
+Setup:
+- Install a LaTeX distribution providing `pdflatex` (e.g. MacTeX/TeX Live).
+- Create an S3 bucket; set `S3_BUCKET` and the standard `AWS_*` credentials.
+- Upload one base résumé per resume type to `s3://<bucket>/base/{type}/main.tex`
+  (types: `quant-trader, quant-dev, mle, swe, fdse, ai, robotics, av`). The tailoring
+  engine ships; the base résumé content is yours.
+- Tune `rubrics/{type}.json` (the deterministic keyword dictionaries) over time.
+
+Use:
+- Approve: `uv run python -m jobmaxxing.tailor approve <job_id>` (sets `approved_for_tailoring`).
+- Tailor: `uv run python -m jobmaxxing.tailor <job_id>` — runs the two-pass loop and writes
+  `tailored.tex`, `tailored.pdf`, `review.json`, `diff.txt` to `s3://<bucket>/tailored/{job_id}/`,
+  sets `score_before`/`score_after` and `status=tailored`.
+- Review: `uv run python -m jobmaxxing.tailor review <job_id>` prints the artifact location.
+
+The improvement score (keyword coverage) and the one-page check are computed in code, never
+self-reported by the model. The human reviews the diff and moves the job to `applied`.
+
 ## Status & open items
 
 This is Phase 1 (core feed) only. Routing, tailoring, the MCP server, JobSpy, and
