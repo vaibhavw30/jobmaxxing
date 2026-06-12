@@ -1,6 +1,10 @@
 import json
 import re
 
+from ..llm.client import LLMUnavailable
+from .rules import score_jd
+from .types import RouteDecision
+
 _JSON_OBJ = re.compile(r"\{.*\}", re.DOTALL)
 
 
@@ -43,3 +47,29 @@ def parse_tiebreaker_response(text: str | None, allowed_types: list[str]):
     if isinstance(c, bool) or not isinstance(c, (int, float)) or not (0.0 <= c <= 1.0):
         return None
     return (t, float(c))
+
+
+_FALLBACK_CONFIDENCE = 0.4
+
+
+def resolve(outcome_candidates, title, description, *, llm_complete, config, candidates=None):
+    """Resolve an ambiguous posting with one schema-gated LLM call.
+
+    On a valid in-enum reply -> RouteDecision(method='llm'). On any parse failure,
+    out-of-enum answer, or LLMUnavailable -> deterministic fallback to the highest-JD
+    candidate, recorded as method='rules' (the LLM did not decide)."""
+    cands = candidates if candidates is not None else (outcome_candidates or list(config["types"]))
+    messages = build_tiebreaker_messages(title, description, cands, config)
+    try:
+        text = llm_complete("route", messages, max_tokens=200, response_format={"type": "json_object"})
+    except LLMUnavailable:
+        text = None
+
+    parsed = parse_tiebreaker_response(text, cands) if text is not None else None
+    if parsed is not None:
+        resume_type, confidence = parsed
+        return RouteDecision(resume_type=resume_type, method="llm", confidence=confidence)
+
+    jd = score_jd(description, config)
+    best = max(cands, key=lambda t: jd.get(t, 0.0))
+    return RouteDecision(resume_type=best, method="rules", confidence=_FALLBACK_CONFIDENCE)
