@@ -49,3 +49,19 @@ def test_no_title_ambiguous_jd_is_ambiguous():
     o = route_by_rules("Summer Intern", "rest api with llm", CONFIG)
     assert o.decision == "ambiguous"
     assert set(o.candidates) == {"swe", "ai"}
+
+
+def test_rank_ties_break_alphabetically_and_handles_empty():
+    from jobmaxxing.routing.rules import _rank
+    assert _rank({"swe": 1.0, "ai": 1.0})[0] == "ai"   # deterministic, not config-order
+    assert _rank({}) == ("", 0.0, 0.0)                  # empty -> sentinel, no crash
+
+
+def test_route_by_rules_handles_none_title():
+    o = route_by_rules(None, "build rest api endpoints", CONFIG)
+    assert o.decision == "routed" and o.resume_type == "swe"
+
+
+def test_route_by_rules_empty_types_is_no_signal():
+    o = route_by_rules("anything", "anything", {"thresholds": {}, "types": {}})
+    assert o.decision == "no_signal"

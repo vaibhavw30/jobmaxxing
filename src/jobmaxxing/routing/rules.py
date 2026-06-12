@@ -1,5 +1,7 @@
 import re
 
+from .types import RulesOutcome
+
 _WS = re.compile(r"\s+")
 _pattern_cache: dict[str, re.Pattern] = {}
 
@@ -51,22 +53,22 @@ def score_jd(description: str | None, config: dict) -> dict[str, float]:
     return out
 
 
-from .types import RulesOutcome
-
-
 def _margin_ratio(top: float, second: float) -> float:
     return max(0.0, min(1.0, (top - second) / max(top, 1.0)))
 
 
 def _rank(scores: dict[str, float]) -> tuple[str, float, float]:
-    """Return (best_type, best_score, second_score) for a non-empty score dict."""
-    ordered = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    """Return (best_type, best_score, second_score). Ties broken alphabetically so the
+    result is deterministic regardless of config key order. Empty dict -> ("", 0.0, 0.0)."""
+    if not scores:
+        return ("", 0.0, 0.0)
+    ordered = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
     best_type, best = ordered[0]
     second = ordered[1][1] if len(ordered) > 1 else 0.0
     return best_type, best, second
 
 
-def route_by_rules(title: str, description: str | None, config: dict) -> RulesOutcome:
+def route_by_rules(title: str | None, description: str | None, config: dict) -> RulesOutcome:
     """Deterministic routing decision (spec §6.2). Title signals are authoritative."""
     thr = config.get("thresholds", {})
     min_margin = thr.get("min_margin_ratio", 0.5)
