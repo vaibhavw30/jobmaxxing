@@ -18,8 +18,13 @@ def build_tiebreaker_messages(title: str, description: str, candidates: list[str
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def parse_tiebreaker_response(text, allowed_types: list[str]):
-    """Validate the LLM reply. Return (type, confidence) only if it is strict and in-enum; else None."""
+def parse_tiebreaker_response(text: str | None, allowed_types: list[str]):
+    """Validate the LLM reply. Return (type, confidence) only if it is strict and in-enum; else None.
+
+    The JSON extractor is greedy (first ``{`` to last ``}``); any ambiguity such as two
+    objects or trailing braces fails to parse and returns None — the gate prefers a safe
+    reject over a guess, so the caller falls back to the deterministic pick.
+    """
     if not isinstance(text, str):
         return None
     match = _JSON_OBJ.search(text)

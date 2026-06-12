@@ -40,3 +40,17 @@ def test_parse_rejects_bad_confidence():
 def test_parse_rejects_garbage():
     assert parse_tiebreaker_response("not json at all", ["ai", "mle"]) is None
     assert parse_tiebreaker_response(None, ["ai", "mle"]) is None
+
+
+def test_parse_rejects_two_objects_in_reply():
+    text = '{"type": "ai", "confidence": 0.8} then {"type": "mle", "confidence": 0.5}'
+    assert parse_tiebreaker_response(text, ["ai", "mle"]) is None
+
+
+def test_parse_rejects_wrapped_object():
+    assert parse_tiebreaker_response('{"result": {"type": "ai", "confidence": 0.8}}', ["ai", "mle"]) is None
+
+
+def test_parse_accepts_boundary_confidence():
+    assert parse_tiebreaker_response('{"type": "ai", "confidence": 0.0}', ["ai", "mle"]) == ("ai", 0.0)
+    assert parse_tiebreaker_response('{"type": "ai", "confidence": 1.0}', ["ai", "mle"]) == ("ai", 1.0)
