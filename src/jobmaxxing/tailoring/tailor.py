@@ -1,13 +1,19 @@
 import json
 import logging
+import os
+import sys
 
+import psycopg
 from psycopg.types.json import Json
 
+from ..config import load_settings
+from ..llm.client import complete as llm_complete
 from .diffing import unified_diff
-from .latex import enforce_one_page
+from .latex import compile_pdf, enforce_one_page
 from .passes import apply_critique, build_tailored, critique_resume, shrink_to_one_page
 from .rubric import load_rubric
 from .scorer import delta, score
+from .storage import S3Store
 
 logger = logging.getLogger(__name__)
 
@@ -77,3 +83,36 @@ def approve(conn, job_id) -> None:
         logger.warning("re-approving already-tailored job %s for re-tailoring", job_id)
     with conn.transaction():
         conn.execute("update jobs set status='approved_for_tailoring' where id=%s", (job_id,))
+
+
+def _print_review(store, job_id) -> None:
+    # review is stored as an artifact; re-fetch is store-specific, so point the operator at it.
+    print(f"review at: {store.artifact_prefix(job_id)}review.json")
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    settings = load_settings()
+    bucket = os.environ.get("S3_BUCKET")
+    if not bucket:
+        sys.exit("S3_BUCKET is not set (see README / .env.example)")
+    store = S3Store(bucket)
+    with psycopg.connect(settings.database_url) as conn:
+        if len(sys.argv) >= 2 and sys.argv[1] == "approve":
+            if len(sys.argv) != 3:
+                sys.exit("usage: python -m jobmaxxing.tailor approve <job_id>")
+            approve(conn, sys.argv[2])
+            print(f"approved {sys.argv[2]} for tailoring")
+        elif len(sys.argv) >= 2 and sys.argv[1] == "review":
+            if len(sys.argv) != 3:
+                sys.exit("usage: python -m jobmaxxing.tailor review <job_id>")
+            _print_review(store, sys.argv[2])
+        elif len(sys.argv) == 2:
+            review = tailor_job(conn, sys.argv[1], store=store, complete=llm_complete, compile_fn=compile_pdf)
+            print(f"tailored {sys.argv[1]}: {review['delta']}")
+        else:
+            sys.exit("usage: python -m jobmaxxing.tailor [approve|review] <job_id>")
+
+
+if __name__ == "__main__":
+    main()
