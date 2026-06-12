@@ -64,6 +64,26 @@ PostgreSQL **server** binary (`initdb`/`pg_ctl`) on your `PATH`:
   version suffix to whatever brew installed, e.g. `postgresql@16`).
 - CI installs PostgreSQL automatically (see `.github/workflows/ci.yml`).
 
+## Routing
+
+After ingestion, postings are classified into one of 8 resume types
+(`quant-trader, quant-dev, mle, swe, fdse, ai, robotics, av`).
+
+- Run: `uv run python -m jobmaxxing.route` (also runs automatically as a second
+  step in the pollers workflow, right after ingestion).
+- **Deterministic first:** title signals are authoritative; a JD-keyword tie-break
+  resolves most of the rest. The LLM is a bounded, schema-gated fallback used only
+  for ambiguous postings that have a job description, and its answer is always
+  validated against the type set (or it falls back to the deterministic pick). Each
+  run logs the `rules` / `llm` / `deferred` split — tune `config/routing.yaml` to
+  push `llm` down.
+- **Manual override:** `uv run python -m jobmaxxing.route set <job_id> <type>`
+  (sets `route_method='manual'`; automated routing never overwrites manual rows).
+- **LLM keys:** set `OPENAI_API_KEY` / `XAI_API_KEY` / `ANTHROPIC_API_KEY` (env locally,
+  GitHub Actions secrets in CI). Provider order and models are configured in
+  `config/llm.yaml`; a provider with no key is simply skipped, so routing still works
+  on the deterministic rules alone even with no LLM keys set.
+
 ## Status & open items
 
 This is Phase 1 (core feed) only. Routing, tailoring, the MCP server, JobSpy, and

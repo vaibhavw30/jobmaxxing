@@ -1,0 +1,43 @@
+thresholds: { min_top_score: 1.0, min_margin_ratio: 0.5, jd_hits_cap: 5, max_llm_calls_per_run: 200 }
+
+types:
+  quant-trader:
+    definition: "Trading desk / market-making intern: markets, EV, PnL, game theory."
+    title_signals: ["quantitative trader", "quant trader", "trader intern", "trading intern"]
+    jd_signals: ["market making", "expected value", "pnl", "options", "game theory", "probability", "mental math"]
+    exclude_signals: []
+  quant-dev:
+    definition: "Low-latency systems for trading: C++, market data, backtesting."
+    title_signals: ["quantitative developer", "quant developer", "quant dev", "quantitative software"]
+    jd_signals: ["low-latency", "c++", "market data", "backtesting", "time-series", "order book", "systems programming"]
+    exclude_signals: []
+  mle:
+    definition: "ML engineering: model training/inference, features, evaluation at scale."
+    title_signals: ["machine learning", "ml engineer", "ml intern", "mle"]
+    jd_signals: ["training", "inference", "xgboost", "feature engineering", "model evaluation", "pytorch", "tensorflow"]
+    exclude_signals: ["large language model", "llm", "agentic"]
+  swe:
+    definition: "General software engineering: APIs, distributed systems, CI/CD."
+    title_signals: ["software engineer", "software developer", "swe intern", "backend", "full stack", "frontend"]
+    jd_signals: ["api", "distributed systems", "microservices", "ci/cd", "rest", "scalability"]
+    exclude_signals: []
+  fdse:
+    definition: "Forward-deployed / customer-facing engineering: deployment, integration, ontology."
+    title_signals: ["forward deployed", "fdse", "deployment strategist", "solutions engineer"]
+    jd_signals: ["customer-facing", "data integration", "ontology", "foundry", "deployment", "stakeholders"]
+    exclude_signals: []
+  ai:
+    definition: "Applied generative AI: LLMs, agents, RAG, fine-tuning, inference infra."
+    title_signals: ["ai engineer", "ai intern", "generative ai", "llm", "applied ai"]
+    jd_signals: ["large language model", "llm", "agentic", "rag", "fine-tuning", "prompt", "retrieval augmented"]
+    exclude_signals: []
+  robotics:
+    definition: "Robotics: control, perception, ROS, state estimation, sim, RL."
+    title_signals: ["robotics", "robotics engineer", "robot"]
+    jd_signals: ["ros", "control systems", "state estimation", "perception", "manipulation", "reinforcement learning", "simulation"]
+    exclude_signals: []
+  av:
+    definition: "Autonomous vehicles: perception, sensor fusion, planning, SLAM, safety."
+    title_signals: ["autonomous vehicle", "self-driving", "autonomy", "adas"]
+    jd_signals: ["sensor fusion", "slam", "motion planning", "lidar", "perception", "localization", "safety-critical"]
+    exclude_signals: []
