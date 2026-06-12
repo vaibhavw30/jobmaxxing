@@ -45,7 +45,12 @@ class S3Store:
         try:
             resp = self.client.get_object(Bucket=self.bucket, Key=key)
         except ClientError as exc:
-            raise BaseResumeMissing(f"no base resume at s3://{self.bucket}/{key}") from exc
+            # Only a genuine missing key is BaseResumeMissing; surface permission/throttling/
+            # bucket errors as themselves so a misconfig isn't misread as "no resume".
+            code = exc.response.get("Error", {}).get("Code")
+            if code in ("NoSuchKey", "404"):
+                raise BaseResumeMissing(f"no base resume at s3://{self.bucket}/{key}") from exc
+            raise
         return resp["Body"].read().decode("utf-8")
 
     def put_artifact(self, job_id, name: str, data: bytes) -> None:

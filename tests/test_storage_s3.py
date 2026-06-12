@@ -44,3 +44,16 @@ def test_put_artifact_writes_key_and_prefix():
     store.put_artifact("job1", "tailored.tex", b"abc")
     assert client.puts["tailored/job1/tailored.tex"] == b"abc"
     assert store.artifact_prefix("job1") == "s3://mybucket/tailored/job1/"
+
+
+def test_non_missing_client_error_propagates():
+    # an AccessDenied/throttling error must NOT masquerade as BaseResumeMissing
+    from botocore.exceptions import ClientError
+
+    class _DeniedS3:
+        def get_object(self, Bucket, Key):
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")
+
+    store = S3Store("mybucket", client=_DeniedS3())
+    with pytest.raises(ClientError):
+        store.get_base_resume("swe")
