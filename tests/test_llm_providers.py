@@ -97,3 +97,26 @@ def test_anthropic_adapter_splits_system(monkeypatch):
     assert _FakeAnthropicClient.last_call["system"] == "sys"
     assert _FakeAnthropicClient.last_call["messages"] == [{"role": "user", "content": "hi"}]
     assert _FakeAnthropicClient.last_call["max_tokens"] == 50
+
+
+def test_anthropic_omits_system_when_absent(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-x")
+    monkeypatch.setattr(anthropic, "Anthropic", _FakeAnthropicClient)
+    providers.call_provider("anthropic", "claude-3-5-haiku-latest",
+                            [{"role": "user", "content": "hi"}], max_tokens=50)
+    # No system message -> SDK NOT_GIVEN sentinel, never None (which serializes as null)
+    assert _FakeAnthropicClient.last_call["system"] is anthropic.NOT_GIVEN
+
+
+def test_openai_passes_response_format(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
+    monkeypatch.setattr(openai, "OpenAI", _FakeOpenAIClient)
+    providers.call_provider("openai", "gpt-4o-mini", [{"role": "user", "content": "hi"}],
+                            max_tokens=50, response_format={"type": "json_object"})
+    assert _FakeOpenAIClient.last_call["response_format"] == {"type": "json_object"}
+
+
+def test_call_provider_unknown_provider_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        providers.call_provider("workday", "m", [{"role": "user", "content": "x"}], max_tokens=10)

@@ -35,8 +35,13 @@ def _anthropic(provider, model, messages, max_tokens, response_format):
     client = anthropic.Anthropic(api_key=os.environ[PROVIDER_KEYS[provider]])
     system = "\n".join(m["content"] for m in messages if m["role"] == "system")
     convo = [m for m in messages if m["role"] != "system"]
+    # Use the SDK's NOT_GIVEN sentinel when there is no system prompt: passing None
+    # would serialize as "system": null, which the Anthropic API rejects.
     resp = client.messages.create(
-        model=model, system=system or None, messages=convo, max_tokens=max_tokens
+        model=model,
+        system=system if system else anthropic.NOT_GIVEN,
+        messages=convo,
+        max_tokens=max_tokens,
     )
     return resp.content[0].text
 
