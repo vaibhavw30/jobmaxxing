@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -5,7 +6,9 @@ from ..llm.client import complete as default_complete
 from ..routing.config import load_routing_config
 from ..routing.route import route_one, set_manual
 from ..routing.types import Budget
+from ..tailoring.rubric import load_rubric
 from ..tailoring.tailor import approve as _tailoring_approve
+from ..tailoring.tailor import tailor_job
 
 # The funnel states. Consumed by set_status (a write) to reject typos; query_jobs (a read)
 # stays a lenient filter — an unmatched status just returns no rows.
@@ -92,3 +95,16 @@ def set_status(conn, job_id, status) -> dict:
         if cur.rowcount == 0:
             raise ValueError(f"no job with id {job_id}")  # rolls back the (no-op) update
     return {"job_id": str(job_id), "status": status}
+
+
+def tailor(conn, job_id, *, store, complete, compile_fn) -> dict:
+    """Run the Phase-3 tailoring loop for an approved job; return the review summary."""
+    return tailor_job(conn, job_id, store=store, complete=complete, compile_fn=compile_fn,
+                      rubric_loader=load_rubric)
+
+
+def get_review(store, job_id) -> dict:
+    """Fetch review.json + diff.txt from storage and return both inline."""
+    review = json.loads(store.get_artifact(job_id, "review.json").decode("utf-8"))
+    diff = store.get_artifact(job_id, "diff.txt").decode("utf-8")
+    return {"review": review, "diff": diff}
