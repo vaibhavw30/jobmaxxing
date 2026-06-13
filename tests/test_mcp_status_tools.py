@@ -49,3 +49,8 @@ def test_set_status_rejects_unknown_status(conn):
 def test_set_status_missing_job_raises(conn):
     with pytest.raises(ValueError):
         set_status(conn, "00000000-0000-0000-0000-000000000000", "applied")
+
+
+def test_approve_missing_job_raises(conn):
+    with pytest.raises(ValueError):
+        approve(conn, "00000000-0000-0000-0000-000000000000")

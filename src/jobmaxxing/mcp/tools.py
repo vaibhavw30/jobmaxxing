@@ -89,6 +89,6 @@ def set_status(conn, job_id, status) -> dict:
         raise ValueError(f"invalid status {status!r}; must be one of {sorted(VALID_STATUSES)}")
     with conn.transaction():
         cur = conn.execute("update jobs set status=%s where id=%s", (status, job_id))
-    if cur.rowcount == 0:
-        raise ValueError(f"no job with id {job_id}")
+        if cur.rowcount == 0:
+            raise ValueError(f"no job with id {job_id}")  # rolls back the (no-op) update
     return {"job_id": str(job_id), "status": status}
