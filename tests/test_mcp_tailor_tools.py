@@ -67,3 +67,18 @@ def test_get_review_roundtrips_artifacts():
 def test_get_review_missing_raises():
     with pytest.raises(ArtifactMissing):
         get_review(InMemoryStore(), "nope")
+
+
+def test_tailor_refuses_unapproved_job(conn, monkeypatch):
+    import jobmaxxing.mcp.tools as tools_mod
+
+    monkeypatch.setattr(tools_mod, "load_rubric", lambda t: RUBRIC)
+    conn.execute(
+        "insert into jobs (dedupe_key, source, company, title, url, description, resume_type, status) "
+        "values ('a|y', 'github:simplify', 'Acme', 'SWE', 'https://y', 'needs python', 'swe', 'routed')"
+    )
+    conn.commit()
+    job_id = conn.execute("select id from jobs").fetchone()[0]
+    store = InMemoryStore(base_resumes={"swe": "base"})
+    with pytest.raises(ValueError):   # not approved_for_tailoring -> gate fires through the mcp layer
+        tailor(conn, job_id, store=store, complete=_fake_complete, compile_fn=_fake_compile)
