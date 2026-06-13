@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "jobmaxxing": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "jobmaxxing.mcp"]
+    }
+  }
+}

@@ -108,9 +108,30 @@ Use:
 The improvement score (keyword coverage) and the one-page check are computed in code, never
 self-reported by the model. The human reviews the diff and moves the job to `applied`.
 
+## Conversational interface (MCP)
+
+Drive the whole pipeline from Claude Code via an MCP server — no dashboard.
+
+- Register it: the repo ships `.mcp.json` (runs `uv run python -m jobmaxxing.mcp`); point Claude
+  Code at this project so it launches the server. It reads `DATABASE_URL`, `S3_BUCKET`, `AWS_*`,
+  and the LLM keys from the environment / `.env`. The `tailor_job` tool needs `pdflatex` locally.
+- Tools: `query_jobs` (filter by status/type/company/recency), `preview_route` (stored route, or
+  `rerun` to preview live), `set_route` (manual override), `approve` (gate for tailoring),
+  `tailor_job` (run the loop — slow, ~30-120s), `get_review` (fetch review.json + diff), and
+  `set_status` (move through the funnel incl. `applied`/`rejected`).
+- Typical flow in chat: `query_jobs(status="routed")` -> `approve(<id>)` -> `tailor_job(<id>)` ->
+  `get_review(<id>)` -> review the diff -> `set_status(<id>, "applied")`.
+- Funnel at a glance (Supabase SQL editor): `select * from funnel_counts;` and
+  `select * from review_queue;`.
+
 ## Status & open items
 
-This is Phase 1 (core feed) only. Routing, tailoring, the MCP server, JobSpy, and
-Gmail ingestion are later phases. Before relying on a source in production, verify
-its live JSON shape against the recorded fixtures in `tests/fixtures/` — the real
-Simplify/Greenhouse/Lever/Ashby payloads should be spot-checked once (spec §11).
+Phases 1–4 are built: core feed (ingestion), routing, tailoring, and the MCP
+interface (above). JobSpy + Gmail discovery (Phase 5) and human-gated form-fill
+(Phase 6) are still to come.
+
+Before relying on a source in production, verify its live JSON shape against the
+recorded fixtures in `tests/fixtures/` — the real Simplify/Greenhouse/Lever/Ashby
+payloads should be spot-checked once (they were authored, not captured). The routing
+signal dictionaries (`config/routing.yaml`) and the tailoring keyword rubrics
+(`rubrics/{type}.json`) are seed values to tune against real jobs.
