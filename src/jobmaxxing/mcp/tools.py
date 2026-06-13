@@ -5,6 +5,7 @@ from ..llm.client import complete as default_complete
 from ..routing.config import load_routing_config
 from ..routing.route import route_one, set_manual
 from ..routing.types import Budget
+from ..tailoring.tailor import approve as _tailoring_approve
 
 # The funnel states. Consumed by set_status (a write) to reject typos; query_jobs (a read)
 # stays a lenient filter — an unmatched status just returns no rows.
@@ -74,3 +75,20 @@ def set_route(conn, job_id, resume_type) -> dict:
     """Manual routing override (route_method='manual'; never auto-re-routed)."""
     set_manual(conn, job_id, resume_type)
     return {"job_id": str(job_id), "resume_type": resume_type, "route_method": "manual"}
+
+
+def approve(conn, job_id) -> dict:
+    """Gate a job for tailoring (status -> approved_for_tailoring)."""
+    _tailoring_approve(conn, job_id)
+    return {"job_id": str(job_id), "status": "approved_for_tailoring"}
+
+
+def set_status(conn, job_id, status) -> dict:
+    """Move a job through the funnel (incl. applied/rejected — the human gate)."""
+    if status not in VALID_STATUSES:
+        raise ValueError(f"invalid status {status!r}; must be one of {sorted(VALID_STATUSES)}")
+    with conn.transaction():
+        cur = conn.execute("update jobs set status=%s where id=%s", (status, job_id))
+    if cur.rowcount == 0:
+        raise ValueError(f"no job with id {job_id}")
+    return {"job_id": str(job_id), "status": status}
