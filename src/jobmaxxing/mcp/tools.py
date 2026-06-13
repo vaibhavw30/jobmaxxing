@@ -1,6 +1,11 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from ..llm.client import complete as default_complete
+from ..routing.config import load_routing_config
+from ..routing.route import route_one, set_manual
+from ..routing.types import Budget
+
 # The funnel states. Consumed by set_status (a write) to reject typos; query_jobs (a read)
 # stays a lenient filter — an unmatched status just returns no rows.
 VALID_STATUSES = {
@@ -39,3 +44,31 @@ def query_jobs(conn, *, status=None, resume_type=None, company=None,
         (*params, capped),
     ).fetchall()
     return [{c: _json_safe(v) for c, v in zip(_QUERY_COLS, row)} for row in rows]
+
+
+def preview_route(conn, job_id, *, rerun=False, config=None, llm_complete=None) -> dict:
+    """The stored route; with rerun=True, also what the router WOULD assign now (not persisted)."""
+    row = conn.execute(
+        "select title, description, resume_type, route_method, route_confidence from jobs where id=%s",
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"no job with id {job_id}")
+    title, description, rtype, method, conf = row
+    out = {"stored": {"resume_type": rtype, "route_method": method, "route_confidence": conf}}
+    if rerun:
+        cfg = config if config is not None else load_routing_config()
+        do_llm = llm_complete if llm_complete is not None else default_complete
+        decision = route_one(title, description, cfg, llm_complete=do_llm, budget=Budget(remaining=1))
+        out["rerun"] = {
+            "resume_type": decision.resume_type,
+            "method": decision.method,
+            "confidence": decision.confidence,
+        }
+    return out
+
+
+def set_route(conn, job_id, resume_type) -> dict:
+    """Manual routing override (route_method='manual'; never auto-re-routed)."""
+    set_manual(conn, job_id, resume_type)
+    return {"job_id": str(job_id), "resume_type": resume_type, "route_method": "manual"}
