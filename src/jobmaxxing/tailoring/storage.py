@@ -8,10 +8,15 @@ class BaseResumeMissing(RuntimeError):
     """Raised when no base resume exists for a resume type."""
 
 
+class ArtifactMissing(RuntimeError):
+    """Raised when a requested artifact does not exist."""
+
+
 class ArtifactStore(Protocol):
     def get_base_resume(self, resume_type: str) -> str: ...
     def put_artifact(self, job_id, name: str, data: bytes) -> None: ...
     def artifact_prefix(self, job_id) -> str: ...
+    def get_artifact(self, job_id, name: str) -> bytes: ...
 
 
 class InMemoryStore:
@@ -31,6 +36,12 @@ class InMemoryStore:
 
     def artifact_prefix(self, job_id) -> str:
         return f"memory://tailored/{str(job_id)}/"  # str() for symmetry with put_artifact's key
+
+    def get_artifact(self, job_id, name: str) -> bytes:
+        key = (str(job_id), name)
+        if key not in self.artifacts:
+            raise ArtifactMissing(f"no artifact {name!r} for job {job_id}")
+        return self.artifacts[key]
 
 
 class S3Store:
@@ -58,3 +69,12 @@ class S3Store:
 
     def artifact_prefix(self, job_id) -> str:
         return f"s3://{self.bucket}/tailored/{str(job_id)}/"
+
+    def get_artifact(self, job_id, name: str) -> bytes:
+        key = f"tailored/{str(job_id)}/{name}"
+        try:
+            return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+                raise ArtifactMissing(f"no artifact at s3://{self.bucket}/{key}") from exc
+            raise
