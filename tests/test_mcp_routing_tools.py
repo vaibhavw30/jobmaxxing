@@ -73,3 +73,15 @@ def test_set_route_invalid_type_raises(conn):
     job_id = _insert(conn)
     with pytest.raises(ValueError):
         set_route(conn, job_id, "not-a-type")
+
+
+def test_preview_route_rerun_returns_both_stored_and_rerun(conn):
+    # the common production case: a job already has a stored route AND we ask for a live rerun
+    job_id = _insert(conn, resume_type="mle", route_method="llm", route_confidence=0.6)
+
+    def llm_never(*a, **k):
+        raise AssertionError("clear title should not call the LLM")
+
+    out = preview_route(conn, job_id, rerun=True, config=CONFIG, llm_complete=llm_never)
+    assert out["stored"]["resume_type"] == "mle"      # what's persisted
+    assert out["rerun"]["resume_type"] == "swe"       # what the router would assign now

@@ -60,6 +60,8 @@ def preview_route(conn, job_id, *, rerun=False, config=None, llm_complete=None) 
         cfg = config if config is not None else load_routing_config()
         do_llm = llm_complete if llm_complete is not None else default_complete
         decision = route_one(title, description, cfg, llm_complete=do_llm, budget=Budget(remaining=1))
+        # `stored` uses DB column names; `rerun` uses RouteDecision field names (method/confidence)
+        # — intentional, so the two blocks are visibly distinct in the operator's chat.
         out["rerun"] = {
             "resume_type": decision.resume_type,
             "method": decision.method,
