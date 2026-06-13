@@ -126,7 +126,12 @@ Drive the whole pipeline from Claude Code via an MCP server — no dashboard.
 
 ## Status & open items
 
-This is Phase 1 (core feed) only. Routing, tailoring, the MCP server, JobSpy, and
-Gmail ingestion are later phases. Before relying on a source in production, verify
-its live JSON shape against the recorded fixtures in `tests/fixtures/` — the real
-Simplify/Greenhouse/Lever/Ashby payloads should be spot-checked once (spec §11).
+Phases 1–4 are built: core feed (ingestion), routing, tailoring, and the MCP
+interface (above). JobSpy + Gmail discovery (Phase 5) and human-gated form-fill
+(Phase 6) are still to come.
+
+Before relying on a source in production, verify its live JSON shape against the
+recorded fixtures in `tests/fixtures/` — the real Simplify/Greenhouse/Lever/Ashby
+payloads should be spot-checked once (they were authored, not captured). The routing
+signal dictionaries (`config/routing.yaml`) and the tailoring keyword rubrics
+(`rubrics/{type}.json`) are seed values to tune against real jobs.
