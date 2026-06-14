@@ -5,6 +5,11 @@ Each adapter is a stateless class with three classmethods:
   api_url(url) -> str         translate the human page URL to the JSON endpoint
   parse(payload, url) -> str | None   extract the description, or None if absent
 A None parse result means the posting is gone/unparseable -> permanent failure.
+
+Adapters also carry a `board_scoped` class attribute. When True (Ashby), api_url()
+returns one whole-org board endpoint shared by every posting from that org, so an
+enrichment run can fetch it once and reuse it across the org's postings. When False
+(the per-job ATSes), each posting has its own endpoint and nothing is shared.
 """
 
 import html
@@ -13,6 +18,7 @@ import re
 
 class GreenhouseAdapter:
     name = "greenhouse"
+    board_scoped = False  # per-job endpoint
     # Both the new (job-boards) and classic (boards) hosts; {token}/jobs/{numeric id}.
     _RE = re.compile(r"(?:job-boards|boards)\.greenhouse\.io/([^/?#]+)/jobs/(\d+)")
 
@@ -34,6 +40,7 @@ class GreenhouseAdapter:
 
 class LeverAdapter:
     name = "lever"
+    board_scoped = False  # per-job endpoint
     # jobs.lever.co/{site}/{uuid}  (an optional /apply suffix is ignored by the regex).
     _RE = re.compile(r"jobs\.lever\.co/([^/?#]+)/([0-9a-fA-F-]+)")
 
@@ -54,6 +61,7 @@ class LeverAdapter:
 
 class AshbyAdapter:
     name = "ashby"
+    board_scoped = True  # api_url is the whole-org board, shared by every posting
     # jobs.ashbyhq.com/{org}/{postingUuid}  (optional /application suffix ignored).
     _RE = re.compile(r"jobs\.ashbyhq\.com/([^/?#]+)/([0-9a-fA-F-]+)")
 
@@ -79,6 +87,7 @@ class AshbyAdapter:
 
 class SmartRecruitersAdapter:
     name = "smartrecruiters"
+    board_scoped = False  # per-job endpoint
     # jobs.smartrecruiters.com/{company}/{numeric postingId}
     _RE = re.compile(r"jobs\.smartrecruiters\.com/([^/?#]+)/(\d+)")
 

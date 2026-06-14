@@ -1,4 +1,5 @@
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
@@ -31,13 +32,51 @@ class Outcome:
     error: str | None
 
 
-def _fetch_one(job_id, url: str, fetch_json) -> Outcome:
-    """Fetch + parse one row's JD. Pure w.r.t. the DB; isolates all errors."""
+class _BoardFetchCache:
+    """Single-flight, per-URL memoization of board fetches for one enrich_new run.
+
+    Board-scoped adapters (Ashby) translate every posting from an org to the same
+    whole-org board endpoint, so without memoization N same-org postings refetch the
+    board N times. This caches the first fetch (result *or* exception) per api_url and
+    reuses it. A per-key lock makes it single-flight: under the ThreadPoolExecutor the
+    board is fetched at most once even when several same-org postings race. A cached
+    failure is re-raised to every caller, so each posting is still classified
+    transient/permanent independently by _fetch_one's existing handling.
+    """
+
+    def __init__(self, fetch_json):
+        self._fetch_json = fetch_json
+        self._registry_lock = threading.Lock()
+        self._key_locks: dict[str, threading.Lock] = {}
+        self._results: dict[str, tuple[bool, object]] = {}
+
+    def fetch(self, api_url: str):
+        with self._registry_lock:
+            key_lock = self._key_locks.setdefault(api_url, threading.Lock())
+        with key_lock:
+            if api_url not in self._results:
+                try:
+                    self._results[api_url] = (True, self._fetch_json(api_url))
+                except Exception as exc:  # noqa: BLE001 - cache + re-raise, classified by caller
+                    self._results[api_url] = (False, exc)
+            ok, value = self._results[api_url]
+        if ok:
+            return value
+        raise value
+
+
+def _fetch_one(job_id, url: str, fetch_json, board_cache: "_BoardFetchCache | None" = None) -> Outcome:
+    """Fetch + parse one row's JD. Pure w.r.t. the DB; isolates all errors.
+
+    Board-scoped adapters (Ashby) fetch through board_cache when supplied, so an org's
+    board is fetched once per run; per-job adapters always hit fetch_json directly.
+    """
     adapter = adapter_for(url)
     if adapter is None:
         return Outcome(job_id, "permanent", None, f"no adapter for {url}")
+    fetcher = board_cache.fetch if (board_cache is not None and adapter.board_scoped) else fetch_json
     try:
-        payload = fetch_json(adapter.api_url(url))
+        payload = fetcher(adapter.api_url(url))
     except Exception as exc:  # noqa: BLE001 - classify, never propagate
         return Outcome(job_id, classify_error(exc), None, f"{type(exc).__name__}: {exc}"[:500])
     description = adapter.parse(payload, url)
@@ -71,9 +110,10 @@ def enrich_new(
     if not rows:
         return {"enriched": 0, "permanent_failed": 0, "transient_failed": 0, "candidates": 0}
 
+    board_cache = _BoardFetchCache(fetch_json)
     outcomes: list[Outcome] = []
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = [pool.submit(_fetch_one, job_id, url, fetch_json) for job_id, url in rows]
+        futures = [pool.submit(_fetch_one, job_id, url, fetch_json, board_cache) for job_id, url in rows]
         for future in as_completed(futures):
             outcomes.append(future.result())
 

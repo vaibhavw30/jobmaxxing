@@ -158,6 +158,71 @@ def test_enrich_new_skips_unsupported_and_manual_and_already_described(conn):
 
 
 # ---------------------------------------------------------------------------
+# Per-org Ashby board memoization (one board fetch per org per run)
+# ---------------------------------------------------------------------------
+
+_ASHBY = "https://jobs.ashbyhq.com/acme/{uuid}"
+_ASHBY_BOARD_URL = "https://api.ashbyhq.com/posting-api/job-board/acme?includeCompensation=true"
+_ASHBY_UUIDS = [
+    "11111111-1111-1111-1111-111111111111",
+    "22222222-2222-2222-2222-222222222222",
+    "33333333-3333-3333-3333-333333333333",
+]
+
+
+def _insert_ashby_org(conn):
+    for i, uuid in enumerate(_ASHBY_UUIDS):
+        _insert(conn, dedupe_key=f"ashby{i}", url=_ASHBY.format(uuid=uuid))
+
+
+def test_enrich_new_fetches_ashby_board_once_per_org(conn):
+    _insert_ashby_org(conn)
+    board = {
+        "jobs": [
+            {"id": uuid, "descriptionPlain": f"A real JD for {uuid} with enough words"}
+            for uuid in _ASHBY_UUIDS
+        ]
+    }
+    calls = []
+
+    def counting_fetch(api_url):
+        calls.append(api_url)
+        return board
+
+    counts = enrich_new(conn, fetch_json=counting_fetch)
+    assert counts["enriched"] == 3
+    # The whole org's board is fetched at most once and reused for every posting.
+    assert calls == [_ASHBY_BOARD_URL]
+
+
+def test_enrich_new_ashby_board_404_marks_every_posting_permanent(conn):
+    _insert_ashby_org(conn)
+    calls = []
+
+    def fake_404(api_url):
+        calls.append(api_url)
+        req = httpx.Request("GET", api_url)
+        raise httpx.HTTPStatusError("404", request=req, response=httpx.Response(404, request=req))
+
+    counts = enrich_new(conn, fetch_json=fake_404, cap=3)
+    assert counts == {"enriched": 0, "permanent_failed": 3, "transient_failed": 0, "candidates": 3}
+    assert calls == [_ASHBY_BOARD_URL]  # single shared fetch, classification preserved per posting
+
+
+def test_enrich_new_ashby_board_timeout_marks_every_posting_transient(conn):
+    _insert_ashby_org(conn)
+    calls = []
+
+    def fake_timeout(api_url):
+        calls.append(api_url)
+        raise httpx.TimeoutException("slow")
+
+    counts = enrich_new(conn, fetch_json=fake_timeout, cap=3)
+    assert counts == {"enriched": 0, "permanent_failed": 0, "transient_failed": 3, "candidates": 3}
+    assert calls == [_ASHBY_BOARD_URL]
+
+
+# ---------------------------------------------------------------------------
 # Task 8 — merge-no-clobber durability
 # ---------------------------------------------------------------------------
 
