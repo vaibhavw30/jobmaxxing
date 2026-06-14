@@ -36,6 +36,25 @@ def nightly_queue(conn, *, limit=50) -> list[dict]:
     return [{c: _json_safe(v) for c, v in zip(_QUEUE_COLS, row)} for row in rows]
 
 
+_RECOVER_CAP = 2   # must match recover_jd's cap so find-elsewhere won't re-grab a rejected JD
+
+
+def reject_recovered(conn, job_id) -> dict:
+    """Reject a wrong recovered JD: clear the description, cap recover_attempts so find-elsewhere
+    won't re-grab it, keep resume_type so the job drops back into nightly_queue for manual capture.
+    Guarded to jd_source='recovered' so it can't accidentally wipe an ATS/manual JD."""
+    with conn.transaction():
+        cur = conn.execute(
+            "update jobs set description=null, jd_source=null, "
+            "recover_attempts=greatest(recover_attempts, %s) "
+            "where id=%s and jd_source='recovered'",
+            (_RECOVER_CAP, job_id),
+        )
+        if cur.rowcount == 0:
+            raise ValueError(f"no recovered job with id {job_id}")
+    return {"job_id": str(job_id), "status": "rejected_recovered"}
+
+
 def set_description(conn, job_id, text) -> dict:
     """Ingest a JD the operator obtained (pasted, or fetched by Claude-in-Chrome). Writes the
     description, marks jd_source='manual', and resets resume_type/route_method to NULL (the reset

@@ -72,3 +72,31 @@ def test_set_description_rejects_empty(conn):
 def test_set_description_unknown_id_raises(conn):
     with pytest.raises(ValueError, match="no job"):
         set_description(conn, uuid.uuid4(), "some jd")
+
+
+from jobmaxxing.mcp.tools import reject_recovered
+
+
+def _jid_in(rows, jid):
+    return any(r["id"] == str(jid) for r in rows)
+
+
+def test_reject_recovered_clears_jd_and_returns_to_queue(conn):
+    jid = _insert(conn, dedupe_key="rr|1", description="wrong recovered jd", jd_source="recovered",
+                  resume_type="swe", route_method="rules", recover_attempts=0)
+    out = reject_recovered(conn, jid)
+    assert out["status"] == "rejected_recovered"
+    row = conn.execute(
+        "select description, jd_source, resume_type, recover_attempts from jobs where id=%s", (jid,)
+    ).fetchone()
+    assert row[0] is None and row[1] is None and row[2] == "swe" and row[3] >= 2  # JD cleared, type kept, capped
+    # and it now reappears in the nightly worklist for manual capture
+    assert _jid_in(nightly_queue(conn), jid)
+
+
+def test_reject_recovered_only_touches_recovered_rows(conn):
+    jid = _insert(conn, dedupe_key="rr|2", description="an ATS jd", jd_source=None, recover_attempts=0)
+    with pytest.raises(ValueError, match="no recovered job"):
+        reject_recovered(conn, jid)
+    # unchanged
+    assert conn.execute("select description from jobs where id=%s", (jid,)).fetchone()[0] == "an ATS jd"
