@@ -1,4 +1,5 @@
 from jobmaxxing.enrichment.adapters import adapter_for, GreenhouseAdapter, SUPPORTED_HOSTS_SQL
+from jobmaxxing.enrichment.adapters import LeverAdapter
 
 
 def test_greenhouse_matches_and_api_url():
@@ -26,3 +27,20 @@ def test_unsupported_host_has_no_adapter():
 def test_supported_hosts_sql_covers_all_four():
     for frag in ("greenhouse", "lever", "ashbyhq", "smartrecruiters"):
         assert frag in SUPPORTED_HOSTS_SQL
+
+
+def test_lever_matches_strips_apply_suffix_in_api_url():
+    url = "https://jobs.lever.co/waabi/62700386-b9db-4c78-aec3-5ef59cbe841e/apply"
+    a = adapter_for(url)
+    assert a is LeverAdapter
+    assert a.api_url(url) == (
+        "https://api.lever.co/v0/postings/waabi/62700386-b9db-4c78-aec3-5ef59cbe841e?mode=json"
+    )
+
+
+def test_lever_parse_uses_description_plain():
+    assert LeverAdapter.parse({"descriptionPlain": "Build robots"}, "u") == "Build robots"
+
+
+def test_lever_parse_returns_none_when_empty():
+    assert LeverAdapter.parse({"descriptionPlain": ""}, "u") is None

@@ -32,7 +32,27 @@ class GreenhouseAdapter:
         return html.unescape(content) if content else None
 
 
-ADAPTERS = [GreenhouseAdapter]
+class LeverAdapter:
+    name = "lever"
+    # jobs.lever.co/{site}/{uuid}  (an optional /apply suffix is ignored by the regex).
+    _RE = re.compile(r"jobs\.lever\.co/([^/?#]+)/([0-9a-fA-F-]+)")
+
+    @classmethod
+    def matches(cls, url: str) -> bool:
+        return cls._RE.search(url) is not None
+
+    @classmethod
+    def api_url(cls, url: str) -> str:
+        m = cls._RE.search(url)
+        site, jid = m.group(1), m.group(2)
+        return f"https://api.lever.co/v0/postings/{site}/{jid}?mode=json"
+
+    @classmethod
+    def parse(cls, payload: dict, url: str) -> str | None:
+        return payload.get("descriptionPlain") or None
+
+
+ADAPTERS = [GreenhouseAdapter, LeverAdapter]
 
 # Coarse Postgres regex (case-insensitive ~*) used to keep the candidate query's LIMIT
 # spent only on supported rows. adapter_for() is the precise per-row router/guard.
