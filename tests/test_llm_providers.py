@@ -120,3 +120,10 @@ def test_call_provider_unknown_provider_raises():
     import pytest
     with pytest.raises(ValueError):
         providers.call_provider("workday", "m", [{"role": "user", "content": "x"}], max_tokens=10)
+
+
+def test_provider_available_claude_cli_checks_binary(monkeypatch):
+    monkeypatch.setattr(providers.shutil, "which", lambda name: "/usr/local/bin/claude")
+    assert providers.provider_available("claude-cli") is True
+    monkeypatch.setattr(providers.shutil, "which", lambda name: None)
+    assert providers.provider_available("claude-cli") is False
