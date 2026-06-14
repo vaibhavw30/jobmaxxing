@@ -84,3 +84,40 @@ def test_resolve_title_only_defers_on_unparseable_reply():
         return "not json at all"
     d = resolve_title_only(["ai", "mle"], "AI / ML Intern", llm_complete=fake_llm, config=_TT_CONFIG)
     assert d.method is None
+
+
+from jobmaxxing.routing.tiebreaker import build_classify_messages, classify_title
+
+_FULL_CONFIG = {
+    "types": {t: {"definition": f"{t} work"} for t in
+              ("quant-trader", "quant-dev", "mle", "swe", "fdse", "ai", "robotics", "av")}
+}
+
+
+def test_build_classify_messages_lists_all_types_plus_none():
+    msgs = build_classify_messages("ML Intern", _FULL_CONFIG)
+    system = msgs[0]["content"]
+    for t in ("swe", "mle", "av", "none"):
+        assert t in system
+    assert "ML Intern" in msgs[1]["content"]
+
+
+def test_classify_title_returns_llm_title_for_a_type():
+    def fake_llm(task, messages, **kw):
+        return '{"type": "mle", "confidence": 0.9}'
+    d = classify_title("Machine Learning Co-op", llm_complete=fake_llm, config=_FULL_CONFIG)
+    assert d.resume_type == "mle" and d.method == "llm_title" and d.confidence == 0.4
+
+
+def test_classify_title_none_is_not_target():
+    def fake_llm(task, messages, **kw):
+        return '{"type": "none", "confidence": 0.9}'
+    d = classify_title("Warehouse Associate", llm_complete=fake_llm, config=_FULL_CONFIG)
+    assert d.resume_type is None and d.method == "not_target"
+
+
+def test_classify_title_defers_when_llm_unavailable():
+    def fake_llm(task, messages, **kw):
+        raise LLMUnavailable("no provider")
+    d = classify_title("Some Intern", llm_complete=fake_llm, config=_FULL_CONFIG)
+    assert d.method is None

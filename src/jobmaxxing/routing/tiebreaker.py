@@ -3,7 +3,7 @@ import re
 
 from ..llm.client import LLMUnavailable
 from .rules import score_jd
-from .types import RouteDecision
+from .types import VALID_TYPES, RouteDecision
 
 _JSON_OBJ = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -100,3 +100,33 @@ def resolve_title_only(candidates: list[str], title, *, llm_complete, config) ->
         return RouteDecision(resume_type=None, method=None, confidence=0.0)
     resume_type, conf = parsed
     return RouteDecision(resume_type=resume_type, method="llm_title", confidence=min(conf, _TITLE_ROUTE_CONFIDENCE))
+
+
+def build_classify_messages(title, config) -> list[dict]:
+    """Open classification prompt: pick one of the 8 types, or 'none' (not a target role)."""
+    defs = "\n".join(f"- {t}: {config['types'][t].get('definition', '')}" for t in VALID_TYPES)
+    allowed = ", ".join(VALID_TYPES)
+    system = (
+        "You assign an internship posting to exactly one resume type, or 'none' if it fits none.\n"
+        f"Types:\n{defs}\n\n"
+        f'Respond with STRICT JSON only: {{"type": <one of: {allowed}, none>, "confidence": <0.0-1.0>}}. '
+        "No prose, no code fences."
+    )
+    user = f"Internship title (no job description available): {title}"
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def classify_title(title, *, llm_complete, config) -> RouteDecision:
+    """Open-classify a title -> method='llm_title' (a type) | 'not_target' ('none') | defer (LLM error)."""
+    messages = build_classify_messages(title, config)
+    try:
+        text = llm_complete("route", messages, max_tokens=200, response_format={"type": "json_object"})
+    except LLMUnavailable:
+        return RouteDecision(resume_type=None, method=None, confidence=0.0)
+    parsed = parse_tiebreaker_response(text, list(VALID_TYPES) + ["none"])
+    if parsed is None:
+        return RouteDecision(resume_type=None, method=None, confidence=0.0)
+    t, conf = parsed
+    if t == "none":
+        return RouteDecision(resume_type=None, method="not_target", confidence=0.0)
+    return RouteDecision(resume_type=t, method="llm_title", confidence=min(conf, _TITLE_ROUTE_CONFIDENCE))
