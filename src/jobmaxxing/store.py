@@ -99,9 +99,16 @@ def upsert_jobs(conn: psycopg.Connection, records: list[JobRecord]) -> dict[str,
 
     keys = list(folded)
     with conn.cursor(row_factory=dict_row) as cur:
+        # Select only the columns _row_to_record reads — avoids hauling the unused
+        # (and growing) score_before/after jsonb back over the pooler for every row.
         existing = {
             row["dedupe_key"]: row
-            for row in cur.execute("select * from jobs where dedupe_key = any(%s)", (keys,)).fetchall()
+            for row in cur.execute(
+                "select dedupe_key, source, external_id, company, title, location, "
+                "url, alt_urls, description, posted_at, is_active "
+                "from jobs where dedupe_key = any(%s)",
+                (keys,),
+            ).fetchall()
         }
 
         to_insert = [_record_values(rec) for key, rec in folded.items() if key not in existing]
