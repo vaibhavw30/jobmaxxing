@@ -71,3 +71,90 @@ def test_looks_like_challenge():
     assert _looks_like_challenge("Attention Required! | Cloudflare") is True
     assert _looks_like_challenge("Software Engineer Intern - Micron") is False
     assert _looks_like_challenge("") is False
+
+
+from jobmaxxing.enrichment.workday import fetch_workday_one
+
+_PAYLOAD = {"jobPostingInfo": {"jobDescription": "<p>Real JD with enough words</p>"}}
+_URL = "https://acme.wd5.myworkdayjobs.com/Careers/job/NYC/Intern_R1"
+
+
+class FakeFetcher:
+    """Drives each tier with a queued behavior: a dict -> returned, an Exception -> raised."""
+    def __init__(self, plain=None, context=None, render=None):
+        self._plan = {"plain": plain, "context": context, "render": render}
+        self.calls = []
+
+    def _do(self, tier):
+        self.calls.append(tier)
+        b = self._plan[tier]
+        if isinstance(b, Exception):
+            raise b
+        if b is None:
+            raise AssertionError(f"tier {tier} unexpectedly called")
+        return b
+
+    def fetch_plain(self, cxs_url):
+        return self._do("plain")
+
+    def fetch_via_context(self, host, cxs_url):
+        return self._do("context")
+
+    def fetch_via_render(self, job_url):
+        return self._do("render")
+
+
+def test_tier0_success_skips_other_tiers():
+    f = FakeFetcher(plain=_PAYLOAD)
+    out = fetch_workday_one("j1", _URL, f)
+    assert out.kind == "enriched"
+    assert out.description == "<p>Real JD with enough words</p>"
+    assert f.calls == ["plain"]
+
+
+def test_escalates_to_context_on_block():
+    f = FakeFetcher(plain=WorkdayBlocked("403"), context=_PAYLOAD)
+    out = fetch_workday_one("j1", _URL, f)
+    assert out.kind == "enriched"
+    assert f.calls == ["plain", "context"]
+
+
+def test_escalates_to_render_on_block():
+    f = FakeFetcher(plain=WorkdayBlocked("403"), context=WorkdayBlocked("403"), render=_PAYLOAD)
+    out = fetch_workday_one("j1", _URL, f)
+    assert out.kind == "enriched"
+    assert f.calls == ["plain", "context", "render"]
+
+
+def test_blocked_all_tiers_is_transient():
+    f = FakeFetcher(plain=WorkdayBlocked("x"), context=WorkdayBlocked("x"), render=WorkdayBlocked("x"))
+    out = fetch_workday_one("j1", _URL, f)
+    assert out.kind == "transient"
+    assert f.calls == ["plain", "context", "render"]
+
+
+def test_not_found_stops_immediately_permanent():
+    f = FakeFetcher(plain=WorkdayNotFound("404"))
+    out = fetch_workday_one("j1", _URL, f)
+    assert out.kind == "permanent"
+    assert f.calls == ["plain"]
+
+
+def test_transient_stops_immediately():
+    f = FakeFetcher(plain=WorkdayTransient("timeout"))
+    out = fetch_workday_one("j1", _URL, f)
+    assert out.kind == "transient"
+    assert f.calls == ["plain"]
+
+
+def test_payload_without_description_is_permanent():
+    f = FakeFetcher(plain={"jobPostingInfo": {}})
+    out = fetch_workday_one("j1", _URL, f)
+    assert out.kind == "permanent"
+
+
+def test_unrecognized_url_is_permanent_without_fetching():
+    f = FakeFetcher()
+    out = fetch_workday_one("j1", "https://x.greenhouse.io/y", f)
+    assert out.kind == "permanent"
+    assert f.calls == []
