@@ -159,6 +159,17 @@ To measure real-world yield or to run the live end-to-end test:
     uv run --extra headless python scripts/spike_workday.py 30
     JOBMAXXING_E2E=1 uv run --extra headless pytest tests/test_workday_e2e.py -v
 
+### Nightly operator queue (MCP)
+
+For Workday jobs neither the headless worker nor find-elsewhere could enrich, the MCP surfaces a
+nightly worklist:
+
+- `nightly_queue` — relevant, still-JD-less jobs to grab by hand. Open each in your own (non-bot)
+  browser, read the JD, then `set_description(job_id, "<the JD text>")` — it stores the JD and
+  resets routing so the next poll classifies it with the JD, ready to approve + tailor.
+- `query_jobs(jd_source="recovered")` — list the auto-recovered JDs to spot-check; `reject_recovered(job_id)`
+  discards a wrong one and returns the job to the nightly queue.
+
 ### JD recovery (find-elsewhere, local)
 
 For Workday jobs that can't be enriched, run the recovery worker LOCALLY (residential IP — it
