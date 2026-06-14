@@ -42,3 +42,14 @@ def test_candidates_for_filters_incomplete_candidates():
         "garbage",                # not a dict -> dropped
     ]}}
     assert candidates_for("route", cfg) == [{"provider": "openai", "model": "gpt-4o-mini"}]
+
+
+def test_tailor_and_review_prefer_claude_cli():
+    from jobmaxxing.llm.config import candidates_for, load_llm_config
+    cfg = load_llm_config()  # the real config/llm.yaml
+    for task in ("tailor", "review"):
+        cands = candidates_for(task, cfg)
+        assert cands[0] == {"provider": "claude-cli", "model": "sonnet"}, task
+        assert any(c["provider"] == "anthropic" for c in cands[1:]), f"{task} keeps an API fallback"
+    # route must NOT use claude-cli (CI has no subscription; stays API)
+    assert all(c["provider"] != "claude-cli" for c in candidates_for("route", cfg))
