@@ -90,6 +90,25 @@ def test_route_new_is_idempotent(conn):
     assert counts2["rules"] == 0 and counts2["llm"] == 0   # already routed, nothing to do
 
 
+def test_route_new_batches_mixed_rows(conn):
+    # clear-title -> rules; title-only-ambiguous -> deferred; manual -> skipped
+    _insert(conn, title="Software Engineer Intern", description="api work", dedupe_key="b|swe")
+    _insert(conn, title="AI Engineer / ML Engineer Intern", description=None, dedupe_key="b|titleonly")
+    _insert(conn, title="Quant Intern", description="api", dedupe_key="b|manual",
+            resume_type="quant-trader", route_method="manual")
+
+    counts = route_new(conn, config=CONFIG, llm_complete=lambda *a, **k: "{}")
+    assert counts["rules"] == 1
+    assert counts["deferred"] == 1
+    assert counts["manual_skipped"] == 1
+    rows = dict(conn.execute("select dedupe_key, status from jobs").fetchall())
+    assert rows["b|swe"] == "routed"
+    assert rows["b|titleonly"] == "new"
+    by_method = dict(conn.execute("select dedupe_key, route_method from jobs").fetchall())
+    assert by_method["b|swe"] == "rules"
+    assert by_method["b|manual"] == "manual"
+
+
 def test_set_manual_overrides_and_validates(conn):
     _insert(conn, title="Whatever", description=None, dedupe_key="a|set")
     job_id = conn.execute("select id from jobs").fetchone()[0]

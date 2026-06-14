@@ -41,7 +41,12 @@ def route_one(
 
 def route_new(conn: psycopg.Connection, *, config=None, llm_complete=None, max_llm_calls=None, reroute=False) -> dict:
     """Route unrouted, non-manual rows. With reroute=True, re-route all non-manual rows.
-    Returns counts {rules, llm, deferred, manual_skipped}."""
+    Returns counts {rules, llm, deferred, manual_skipped}.
+
+    Decisions are computed per row (so one bad row never aborts the run); the resulting
+    UPDATEs are batched into a single pipelined executemany in one transaction, which
+    collapses thousands of remote round-trips into one commit.
+    """
     cfg = config if config is not None else load_routing_config()
     do_llm = llm_complete if llm_complete is not None else llm_complete_default
     cap = max_llm_calls if max_llm_calls is not None else cfg.get("thresholds", {}).get("max_llm_calls_per_run", 200)
@@ -54,6 +59,7 @@ def route_new(conn: psycopg.Connection, *, config=None, llm_complete=None, max_l
 
     rows = conn.execute(f"select id, title, description from jobs where {where}").fetchall()
     counts = {"rules": 0, "llm": 0, "deferred": 0, "manual_skipped": 0}
+    updates: list[tuple] = []
 
     for job_id, title, description in rows:
         try:
@@ -65,14 +71,15 @@ def route_new(conn: psycopg.Connection, *, config=None, llm_complete=None, max_l
         if decision.method is None:
             counts["deferred"] += 1
             continue
-        with conn.transaction():
-            conn.execute(
-                "update jobs set resume_type=%s, route_method=%s, route_confidence=%s, status='routed' where id=%s",
-                (decision.resume_type, decision.method, decision.confidence, job_id),
-            )
+        updates.append((decision.resume_type, decision.method, decision.confidence, job_id))
         counts[decision.method] += 1
 
-    # Informational: how many rows the operator has pinned manually (excluded above).
+    if updates:
+        with conn.transaction():
+            conn.cursor().executemany(
+                "update jobs set resume_type=%s, route_method=%s, route_confidence=%s, status='routed' where id=%s",
+                updates,
+            )
     counts["manual_skipped"] = conn.execute(
         "select count(*) from jobs where route_method = 'manual'"
     ).fetchone()[0]
