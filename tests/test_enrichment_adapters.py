@@ -1,6 +1,7 @@
 from jobmaxxing.enrichment.adapters import adapter_for, GreenhouseAdapter, SUPPORTED_HOSTS_SQL
 from jobmaxxing.enrichment.adapters import LeverAdapter
 from jobmaxxing.enrichment.adapters import AshbyAdapter
+from jobmaxxing.enrichment.adapters import SmartRecruitersAdapter
 
 
 def test_greenhouse_matches_and_api_url():
@@ -68,3 +69,26 @@ def test_ashby_parse_selects_posting_by_id_from_url():
 
 def test_ashby_parse_returns_none_when_posting_absent():
     assert AshbyAdapter.parse({"jobs": [{"id": "z", "descriptionPlain": "x"}]}, _ASHBY_URL) is None
+
+
+_SR_URL = "https://jobs.smartrecruiters.com/AbbVie/3743990010199046"
+
+
+def test_smartrecruiters_matches_and_api_url():
+    a = adapter_for(_SR_URL)
+    assert a is SmartRecruitersAdapter
+    assert a.api_url(_SR_URL) == (
+        "https://api.smartrecruiters.com/v1/companies/AbbVie/postings/3743990010199046"
+    )
+
+
+def test_smartrecruiters_parse_joins_description_and_qualifications():
+    payload = {"jobAd": {"sections": {
+        "jobDescription": {"text": "<p>Env</p>"},
+        "qualifications": {"text": "<p>Q</p>"},
+    }}}
+    assert SmartRecruitersAdapter.parse(payload, _SR_URL) == "<p>Env</p>\n<p>Q</p>"
+
+
+def test_smartrecruiters_parse_returns_none_when_no_sections():
+    assert SmartRecruitersAdapter.parse({"jobAd": {"sections": {}}}, _SR_URL) is None

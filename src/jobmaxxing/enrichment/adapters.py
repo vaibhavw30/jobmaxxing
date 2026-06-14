@@ -75,7 +75,33 @@ class AshbyAdapter:
         return None  # posting no longer on the board -> permanent
 
 
-ADAPTERS = [GreenhouseAdapter, LeverAdapter, AshbyAdapter]
+class SmartRecruitersAdapter:
+    name = "smartrecruiters"
+    # jobs.smartrecruiters.com/{company}/{numeric postingId}
+    _RE = re.compile(r"jobs\.smartrecruiters\.com/([^/?#]+)/(\d+)")
+
+    @classmethod
+    def matches(cls, url: str) -> bool:
+        return cls._RE.search(url) is not None
+
+    @classmethod
+    def api_url(cls, url: str) -> str:
+        m = cls._RE.search(url)
+        company, posting_id = m.group(1), m.group(2)
+        return f"https://api.smartrecruiters.com/v1/companies/{company}/postings/{posting_id}"
+
+    @classmethod
+    def parse(cls, payload: dict, url: str) -> str | None:
+        sections = payload.get("jobAd", {}).get("sections", {})
+        parts = [
+            sections.get(key, {}).get("text")
+            for key in ("jobDescription", "qualifications")
+        ]
+        text = "\n".join(p for p in parts if p)
+        return text or None
+
+
+ADAPTERS = [GreenhouseAdapter, LeverAdapter, AshbyAdapter, SmartRecruitersAdapter]
 
 # Coarse Postgres regex (case-insensitive ~*) used to keep the candidate query's LIMIT
 # spent only on supported rows. adapter_for() is the precise per-row router/guard.
