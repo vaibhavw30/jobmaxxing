@@ -100,3 +100,13 @@ def test_reject_recovered_only_touches_recovered_rows(conn):
         reject_recovered(conn, jid)
     # unchanged
     assert conn.execute("select description from jobs where id=%s", (jid,)).fetchone()[0] == "an ATS jd"
+
+
+from jobmaxxing.mcp.tools import query_jobs
+
+
+def test_query_jobs_filters_by_jd_source(conn):
+    _insert(conn, dedupe_key="js|rec", description="d", jd_source="recovered")
+    _insert(conn, dedupe_key="js|ats", description="d", jd_source=None)
+    rows = query_jobs(conn, jd_source="recovered")
+    assert len(rows) == 1 and rows[0]["url"].endswith("js|rec")

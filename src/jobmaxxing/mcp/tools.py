@@ -74,7 +74,7 @@ def set_description(conn, job_id, text) -> dict:
 
 
 def query_jobs(conn, *, status=None, resume_type=None, company=None,
-               since_days=None, limit=50) -> list[dict]:
+               jd_source=None, since_days=None, limit=50) -> list[dict]:
     """Filtered, capped view of the feed (newest first). limit hard-capped at 200."""
     clauses, params = [], []
     if status is not None:
@@ -86,6 +86,9 @@ def query_jobs(conn, *, status=None, resume_type=None, company=None,
     if company is not None:
         clauses.append("company ilike %s")
         params.append(f"%{company}%")
+    if jd_source is not None:
+        clauses.append("jd_source = %s")
+        params.append(jd_source)
     if since_days is not None:
         clauses.append("scraped_at >= %s")
         params.append(datetime.now(timezone.utc) - timedelta(days=int(since_days)))
