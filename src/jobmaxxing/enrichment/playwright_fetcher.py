@@ -25,7 +25,11 @@ class PlaywrightFetcher:
         from playwright.sync_api import sync_playwright  # lazy
         self._settle_ms, self._nav_timeout_ms = settle_ms, nav_timeout_ms
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.launch(headless=headless)
+        try:
+            self._browser = self._pw.chromium.launch(headless=headless)
+        except Exception:
+            self._pw.stop()  # don't leak the playwright process (e.g. `playwright install` not run)
+            raise
         self._contexts: dict[str, object] = {}
         self._http = httpx.Client(headers=_HEADERS, timeout=20.0, follow_redirects=True)
 
@@ -38,16 +42,22 @@ class PlaywrightFetcher:
         return r.json()
 
     def _cleared_context(self, host: str):
-        if host not in self._contexts:
-            ctx = self._browser.new_context(user_agent=_UA, locale="en-US")
-            page = ctx.new_page()
-            try:
-                page.goto(f"https://{host}/", wait_until="domcontentloaded", timeout=self._nav_timeout_ms)
-                page.wait_for_timeout(self._settle_ms)  # let the CF JS challenge resolve
-            finally:
-                page.close()
-            self._contexts[host] = ctx
-        return self._contexts[host]
+        if host in self._contexts:
+            return self._contexts[host]
+        # Native bundled-Chromium UA (overriding to a stale Chrome/120 string would mismatch
+        # the real TLS fingerprint and read as a bot signal). httpx Tier-0 keeps its own UA.
+        ctx = self._browser.new_context(locale="en-US")
+        page = ctx.new_page()
+        try:
+            page.goto(f"https://{host}/", wait_until="domcontentloaded", timeout=self._nav_timeout_ms)
+            page.wait_for_timeout(self._settle_ms)  # let the CF JS challenge resolve
+        except Exception as exc:  # noqa: BLE001 - warmup failed: close the orphan ctx, classify transient
+            ctx.close()
+            raise WorkdayTransient(f"cf-warmup: {exc}") from exc
+        finally:
+            page.close()
+        self._contexts[host] = ctx
+        return ctx
 
     def fetch_via_context(self, host: str, cxs_url: str) -> dict:
         ctx = self._cleared_context(host)
@@ -84,6 +94,12 @@ class PlaywrightFetcher:
         raise WorkdayNotFound("no cxs job payload from rendered page")
 
     def close(self):
-        self._http.close()
-        self._browser.close()
-        self._pw.stop()
+        # Defensive: a failure closing one resource must not leak the others (called from
+        # the worker's `finally`). Always reach browser.close() and pw.stop().
+        try:
+            self._http.close()
+        finally:
+            try:
+                self._browser.close()
+            finally:
+                self._pw.stop()
