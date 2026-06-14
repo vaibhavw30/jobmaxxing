@@ -27,11 +27,11 @@ CONFIG = {
 }
 
 
-def _insert(conn, *, title, description, dedupe_key, resume_type=None, route_method=None):
+def _insert(conn, *, title, description, dedupe_key, resume_type=None, route_method=None, enrich_attempts=0):
     conn.execute(
-        "insert into jobs (dedupe_key, source, company, title, url, description, resume_type, route_method) "
-        "values (%s, 'github:simplify', 'Acme', %s, %s, %s, %s, %s)",
-        (dedupe_key, title, f"https://x/{dedupe_key}", description, resume_type, route_method),
+        "insert into jobs (dedupe_key, source, company, title, url, description, resume_type, "
+        "route_method, enrich_attempts) values (%s, 'github:simplify', 'Acme', %s, %s, %s, %s, %s, %s)",
+        (dedupe_key, title, f"https://x/{dedupe_key}", description, resume_type, route_method, enrich_attempts),
     )
     conn.commit()
 
@@ -117,3 +117,52 @@ def test_set_manual_overrides_and_validates(conn):
     assert row[0] == "fdse" and row[1] == "manual" and row[2] == 1.0 and row[3] == "routed"
     with pytest.raises(ValueError):
         set_manual(conn, job_id, "not-a-type")
+
+
+def _fake_llm_ai(task, messages, **kw):
+    return '{"type": "ai", "confidence": 0.9}'
+
+
+def test_route_new_title_routes_exhausted_ambiguous_no_jd(conn):
+    _insert(conn, title="AI Engineer / ML Engineer Intern", description=None,
+            dedupe_key="t|amb", enrich_attempts=3)
+    counts = route_new(conn, config=CONFIG, llm_complete=_fake_llm_ai)
+    assert counts["llm_title"] == 1
+    row = conn.execute(
+        "select resume_type, route_method, route_confidence, status from jobs where dedupe_key='t|amb'"
+    ).fetchone()
+    assert row[0] == "ai" and row[1] == "llm_title" and row[2] <= 0.4 and row[3] == "routed"
+
+
+def test_route_new_leaves_not_yet_exhausted_deferred(conn):
+    _insert(conn, title="AI Engineer / ML Engineer Intern", description=None,
+            dedupe_key="t|fresh", enrich_attempts=0)
+    counts = route_new(conn, config=CONFIG, llm_complete=_fake_llm_ai)
+    assert counts["deferred"] == 1 and counts["llm_title"] == 0
+    assert conn.execute("select resume_type from jobs where dedupe_key='t|fresh'").fetchone()[0] is None
+
+
+def test_route_new_not_target_is_marked_and_not_reselected(conn):
+    # exhausted, no rules signal, non-internship title -> not_target (no LLM)
+    _insert(conn, title="Senior Director of Finance", description=None,
+            dedupe_key="t|nt", enrich_attempts=3)
+
+    def _llm_never(*a, **k):
+        raise AssertionError("LLM must not be called for a non-internship not_target")
+
+    counts1 = route_new(conn, config=CONFIG, llm_complete=_llm_never)
+    assert counts1["not_target"] == 1
+    row = conn.execute("select resume_type, route_method from jobs where dedupe_key='t|nt'").fetchone()
+    assert row == (None, "not_target")
+    # second run must NOT reselect it
+    counts2 = route_new(conn, config=CONFIG, llm_complete=_llm_never)
+    assert counts2["not_target"] == 0 and counts2["deferred"] == 0
+
+
+def test_title_routing_uses_separate_budget_not_jd_budget(conn):
+    # one exhausted-no-JD ambiguous row + assert the JD max_llm_calls budget is not consumed by it
+    _insert(conn, title="AI Engineer / ML Engineer Intern", description=None,
+            dedupe_key="t|sep", enrich_attempts=3)
+    # max_llm_calls=0 would block JD routing, but title routing has its own budget -> still routes
+    counts = route_new(conn, config=CONFIG, llm_complete=_fake_llm_ai, max_llm_calls=0)
+    assert counts["llm_title"] == 1

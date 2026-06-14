@@ -75,41 +75,55 @@ def route_new(conn: psycopg.Connection, *, config=None, llm_complete=None, max_l
     """
     cfg = config if config is not None else load_routing_config()
     do_llm = llm_complete if llm_complete is not None else llm_complete_default
-    cap = max_llm_calls if max_llm_calls is not None else cfg.get("thresholds", {}).get("max_llm_calls_per_run", 200)
+    thresholds = cfg.get("thresholds", {})
+    cap = max_llm_calls if max_llm_calls is not None else thresholds.get("max_llm_calls_per_run", 200)
+    title_after = thresholds.get("title_route_after", 3)
     budget = Budget(remaining=cap)
+    title_budget = Budget(remaining=thresholds.get("title_route_max_llm", 100))   # separate cap
 
     if reroute:
         where = "route_method is distinct from 'manual'"
     else:
-        where = "resume_type is null and route_method is distinct from 'manual'"
+        where = ("resume_type is null and route_method is distinct from 'manual' "
+                 "and route_method is distinct from 'not_target'")   # don't re-classify decided non-targets
 
-    rows = conn.execute(f"select id, title, description from jobs where {where}").fetchall()
-    counts = {"rules": 0, "llm": 0, "deferred": 0, "manual_skipped": 0}
-    updates: list[tuple] = []
+    rows = conn.execute(
+        f"select id, title, description, enrich_attempts from jobs where {where}"
+    ).fetchall()
+    counts = {"rules": 0, "llm": 0, "llm_title": 0, "not_target": 0, "deferred": 0, "manual_skipped": 0}
+    routed_updates: list[tuple] = []      # (resume_type, method, confidence, id) -> status='routed'
+    nontarget_updates: list[tuple] = []   # (id,) -> route_method='not_target' only
 
-    for job_id, title, description in rows:
+    for job_id, title, description, enrich_attempts in rows:
+        exhausted = (enrich_attempts or 0) >= title_after and not (description or "").strip()
         try:
-            decision = route_one(title, description, cfg, llm_complete=do_llm, budget=budget)
+            decision = route_one(title, description, cfg, llm_complete=do_llm, budget=budget,
+                                 exhausted=exhausted, title_budget=title_budget)
         except Exception as exc:  # noqa: BLE001 - one bad row never aborts the run
             logger.warning("route: job %s failed: %s", job_id, exc)
             counts["deferred"] += 1
             continue
         if decision.method is None:
             counts["deferred"] += 1
-            continue
-        updates.append((decision.resume_type, decision.method, decision.confidence, job_id))
-        counts[decision.method] += 1
+        elif decision.method == "not_target":
+            nontarget_updates.append((job_id,))
+            counts["not_target"] += 1
+        else:
+            routed_updates.append((decision.resume_type, decision.method, decision.confidence, job_id))
+            counts[decision.method] += 1
 
-    if updates:
-        with conn.transaction(), conn.cursor() as cur:
+    with conn.transaction(), conn.cursor() as cur:
+        if routed_updates:
             cur.executemany(
                 "update jobs set resume_type=%s, route_method=%s, route_confidence=%s, status='routed' where id=%s",
-                updates,
+                routed_updates,
             )
+        if nontarget_updates:
+            cur.executemany("update jobs set route_method='not_target' where id=%s", nontarget_updates)
     counts["manual_skipped"] = conn.execute(
         "select count(*) from jobs where route_method = 'manual'"
     ).fetchone()[0]
-    logger.info("route summary: %s (budget left=%d)", counts, budget.remaining)
+    logger.info("route summary: %s (budget left=%d, title left=%d)", counts, budget.remaining, title_budget.remaining)
     return counts
 
 
