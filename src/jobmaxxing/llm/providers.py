@@ -1,4 +1,7 @@
 import os
+import re
+import shutil
+import subprocess
 
 import anthropic
 import openai
@@ -14,7 +17,9 @@ PROVIDER_BASE_URLS = {
 
 
 def provider_available(provider: str) -> bool:
-    """True if the provider's API key env var is set."""
+    """True if the provider can serve a request right now."""
+    if provider == "claude-cli":
+        return shutil.which("claude") is not None   # present locally; absent in CI -> auto-skip
     return bool(os.environ.get(PROVIDER_KEYS.get(provider, "")))
 
 
@@ -54,7 +59,69 @@ def _anthropic(provider, model, messages, max_tokens, response_format, cache=Non
     return resp.content[0].text
 
 
-_ADAPTERS = {"openai": _openai_compatible, "xai": _openai_compatible, "anthropic": _anthropic}
+CLAUDE_CLI_TIMEOUT = 300  # tailoring prompts are large; give the CLI a generous window
+
+# Credentials that route `claude -p` to API BILLING instead of the subscription — stripped from
+# the child env so the CLI uses the operator's logged-in subscription. NOTE: deliberately does
+# NOT include CLAUDE_CODE_OAUTH_TOKEN, which is itself a SUBSCRIPTION credential (stripping it
+# would break subscription auth).
+_API_BILLING_ENV_VARS = {PROVIDER_KEYS["anthropic"], "ANTHROPIC_AUTH_TOKEN"}
+
+# A NON-EMPTY --allowedTools is a strict allowlist, so naming only a harmless read-only tool
+# turns `claude -p` into a pure text completer — Bash, Write, Edit, and Agent are all blocked.
+# (An empty string is a no-op.) This defends against prompt injection in scraped JD text that
+# tries to make the CLI run a tool on the operator's machine; a denylist leaks via Agent.
+_CLAUDE_CLI_ALLOWED_TOOLS = "Glob"
+
+_CODE_FENCE = re.compile(r"\A```[^\n]*\n(.*)\n```\s*\Z", re.DOTALL)
+
+
+def _strip_code_fence(text: str) -> str:
+    """Drop a single surrounding markdown code fence if the CLI wrapped the output. LaTeX/JSON
+    outputs never start with ``` so this only fires on a genuine wrapper (a broken .tex otherwise)."""
+    m = _CODE_FENCE.match(text)
+    return m.group(1).strip() if m else text
+
+
+def _claude_cli(provider, model, messages, max_tokens, response_format, cache=None):
+    """Complete via the local `claude -p` CLI on the user's Claude subscription.
+
+    Single-shot: system messages -> --system-prompt; cache (the base résumé) + non-system
+    messages -> the stdin prompt. response_format and max_tokens have no CLI knob and are
+    intentionally ignored (callers parse leniently, same as the Anthropic adapter); `provider`
+    is unused, present only for adapter-protocol uniformity. API-billing credentials are
+    stripped from the child env so the CLI authenticates with the subscription, not the API.
+    """
+    system_text = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+    prompt_parts = ([cache] if cache else []) + [m["content"] for m in messages if m["role"] != "system"]
+    prompt = "\n\n".join(prompt_parts)
+
+    cmd = ["claude", "-p", "--model", model, "--allowedTools", _CLAUDE_CLI_ALLOWED_TOOLS]
+    if system_text:
+        cmd += ["--system-prompt", system_text]
+    env = {k: v for k, v in os.environ.items() if k not in _API_BILLING_ENV_VARS}
+
+    try:
+        proc = subprocess.run(
+            cmd, input=prompt, capture_output=True, text=True,
+            env=env, timeout=CLAUDE_CLI_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"claude -p timed out after {CLAUDE_CLI_TIMEOUT}s") from exc
+    if proc.returncode != 0:
+        raise RuntimeError(f"claude -p failed (exit {proc.returncode}): {proc.stderr.strip()[:500]}")
+    out = proc.stdout.strip()
+    if not out:
+        raise RuntimeError("claude -p returned empty output")
+    return _strip_code_fence(out)
+
+
+_ADAPTERS = {
+    "openai": _openai_compatible,
+    "xai": _openai_compatible,
+    "anthropic": _anthropic,
+    "claude-cli": _claude_cli,
+}
 
 
 def call_provider(provider, model, messages, *, max_tokens, response_format=None, cache=None) -> str:

@@ -8,8 +8,10 @@ tasks:
     - {provider: openai, model: gpt-4o-mini}                   # fallbacks (skipped while their keys are unset)
     - {provider: xai, model: grok-3-mini}
   tailor:
+    - {provider: claude-cli, model: sonnet}                  # local subscription (no API tokens)
     - {provider: anthropic, model: claude-sonnet-4-5-20250929}
     - {provider: openai, model: gpt-4o}
   review:
+    - {provider: claude-cli, model: sonnet}
     - {provider: anthropic, model: claude-sonnet-4-5-20250929}
     - {provider: openai, model: gpt-4o}

@@ -68,3 +68,38 @@ def test_config_error_propagates_as_valueerror(monkeypatch):
     monkeypatch.setattr(client, "call_provider", bad)
     with pytest.raises(ValueError):
         complete("route", MESSAGES, max_tokens=50, config=CONFIG)
+
+
+_TAILOR_CONFIG = {
+    "tasks": {
+        "tailor": [
+            {"provider": "claude-cli", "model": "sonnet"},
+            {"provider": "anthropic", "model": "claude-sonnet-4-5-20250929"},
+        ]
+    }
+}
+
+
+def test_tailor_uses_claude_cli_when_available(monkeypatch):
+    monkeypatch.setattr(client, "provider_available", lambda p: True)
+    monkeypatch.setattr(client, "call_provider", lambda p, m, msgs, **kw: f"{p}:ok")
+    assert complete("tailor", MESSAGES, max_tokens=4000, config=_TAILOR_CONFIG) == "claude-cli:ok"
+
+
+def test_tailor_falls_back_to_api_when_cli_absent(monkeypatch):
+    # claude binary missing (CI) -> claude-cli unavailable -> anthropic serves it
+    monkeypatch.setattr(client, "provider_available", lambda p: p != "claude-cli")
+    monkeypatch.setattr(client, "call_provider", lambda p, m, msgs, **kw: f"{p}:ok")
+    assert complete("tailor", MESSAGES, max_tokens=4000, config=_TAILOR_CONFIG) == "anthropic:ok"
+
+
+def test_tailor_falls_back_when_cli_errors(monkeypatch):
+    monkeypatch.setattr(client, "provider_available", lambda p: True)
+
+    def flaky(p, m, msgs, **kw):
+        if p == "claude-cli":
+            raise RuntimeError("claude -p failed (exit 1): not logged in")
+        return f"{p}:ok"
+
+    monkeypatch.setattr(client, "call_provider", flaky)
+    assert complete("tailor", MESSAGES, max_tokens=4000, config=_TAILOR_CONFIG) == "anthropic:ok"

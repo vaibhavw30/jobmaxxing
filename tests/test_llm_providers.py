@@ -1,5 +1,8 @@
+import subprocess
+
 import openai
 import anthropic
+import pytest
 
 from jobmaxxing.llm import providers
 
@@ -120,3 +123,89 @@ def test_call_provider_unknown_provider_raises():
     import pytest
     with pytest.raises(ValueError):
         providers.call_provider("workday", "m", [{"role": "user", "content": "x"}], max_tokens=10)
+
+
+def test_provider_available_claude_cli_checks_binary(monkeypatch):
+    monkeypatch.setattr(providers.shutil, "which", lambda name: "/usr/local/bin/claude")
+    assert providers.provider_available("claude-cli") is True
+    monkeypatch.setattr(providers.shutil, "which", lambda name: None)
+    assert providers.provider_available("claude-cli") is False
+
+
+class _FakeProc:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+
+def test_claude_cli_happy_path_and_env_strips_api_key(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-should-not-leak")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "bearer-should-not-leak")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "subscription-keep-me")
+    monkeypatch.setenv("PATH", "/usr/bin")
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return _FakeProc(returncode=0, stdout="  RESULT TEXT \n")
+
+    monkeypatch.setattr(providers.subprocess, "run", fake_run)
+    messages = [{"role": "system", "content": "SYS"}, {"role": "user", "content": "USR"}]
+    out = providers.call_provider("claude-cli", "sonnet", messages, max_tokens=4000, cache="BASE")
+    assert out == "RESULT TEXT"
+    # command: model + restrictive single-tool allowlist + system flag
+    assert captured["cmd"][:4] == ["claude", "-p", "--model", "sonnet"]
+    assert captured["cmd"][captured["cmd"].index("--allowedTools") + 1] == "Glob"   # non-empty allowlist
+    assert "--system-prompt" in captured["cmd"]
+    assert captured["cmd"][captured["cmd"].index("--system-prompt") + 1] == "SYS"
+    # stdin prompt = cache then user message
+    assert captured["kwargs"]["input"] == "BASE\n\nUSR"
+    # THE GUARANTEE: both API-billing creds stripped (forces subscription auth)...
+    assert "ANTHROPIC_API_KEY" not in captured["kwargs"]["env"]
+    assert "ANTHROPIC_AUTH_TOKEN" not in captured["kwargs"]["env"]
+    # ...but the subscription OAuth token and other env are preserved
+    assert captured["kwargs"]["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "subscription-keep-me"
+    assert captured["kwargs"]["env"]["PATH"] == "/usr/bin"
+
+
+def test_claude_cli_strips_markdown_code_fence(monkeypatch):
+    fenced = "```latex\n\\documentclass{article}\n\\end{document}\n```"
+    monkeypatch.setattr(providers.subprocess, "run",
+                        lambda cmd, **kw: _FakeProc(returncode=0, stdout=fenced))
+    out = providers.call_provider("claude-cli", "sonnet", [{"role": "user", "content": "x"}], max_tokens=10)
+    assert out == "\\documentclass{article}\n\\end{document}"   # fence removed
+    # bare (unfenced) output is returned unchanged
+    monkeypatch.setattr(providers.subprocess, "run",
+                        lambda cmd, **kw: _FakeProc(returncode=0, stdout="\\documentclass{article}"))
+    assert providers.call_provider("claude-cli", "sonnet", [{"role": "user", "content": "x"}],
+                                   max_tokens=10) == "\\documentclass{article}"
+
+
+def test_claude_cli_omits_system_flag_when_no_system(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(providers.subprocess, "run",
+                        lambda cmd, **kw: captured.update(cmd=cmd) or _FakeProc(0, "ok"))
+    providers.call_provider("claude-cli", "sonnet", [{"role": "user", "content": "hi"}], max_tokens=10)
+    assert "--system-prompt" not in captured["cmd"]
+
+
+def test_claude_cli_nonzero_exit_raises(monkeypatch):
+    monkeypatch.setattr(providers.subprocess, "run",
+                        lambda cmd, **kw: _FakeProc(returncode=1, stdout="", stderr="not logged in"))
+    with pytest.raises(RuntimeError, match="not logged in"):
+        providers.call_provider("claude-cli", "sonnet", [{"role": "user", "content": "hi"}], max_tokens=10)
+
+
+def test_claude_cli_timeout_raises(monkeypatch):
+    def boom(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, 1)
+    monkeypatch.setattr(providers.subprocess, "run", boom)
+    with pytest.raises(RuntimeError, match="timed out"):
+        providers.call_provider("claude-cli", "sonnet", [{"role": "user", "content": "hi"}], max_tokens=10)
+
+
+def test_claude_cli_empty_output_raises(monkeypatch):
+    monkeypatch.setattr(providers.subprocess, "run",
+                        lambda cmd, **kw: _FakeProc(returncode=0, stdout="   \n"))
+    with pytest.raises(RuntimeError, match="empty"):
+        providers.call_provider("claude-cli", "sonnet", [{"role": "user", "content": "hi"}], max_tokens=10)
