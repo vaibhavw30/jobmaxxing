@@ -222,6 +222,83 @@ def test_enrich_new_ashby_board_timeout_marks_every_posting_transient(conn):
     assert calls == [_ASHBY_BOARD_URL]
 
 
+def _ashby_board_url(org):
+    return f"https://api.ashbyhq.com/posting-api/job-board/{org}?includeCompensation=true"
+
+
+def test_enrich_new_ashby_distinct_orgs_fetched_independently(conn):
+    # Two orgs in one run: the cache is keyed per-org, so each org's board is fetched
+    # exactly once and they never collide. Proves different orgs stay independent.
+    _insert(conn, dedupe_key="acme0", url="https://jobs.ashbyhq.com/acme/" + _ASHBY_UUIDS[0])
+    _insert(conn, dedupe_key="acme1", url="https://jobs.ashbyhq.com/acme/" + _ASHBY_UUIDS[1])
+    _insert(conn, dedupe_key="globex0", url="https://jobs.ashbyhq.com/globex/" + _ASHBY_UUIDS[2])
+    boards = {
+        _ashby_board_url("acme"): {"jobs": [
+            {"id": _ASHBY_UUIDS[0], "descriptionPlain": "acme role zero with enough words"},
+            {"id": _ASHBY_UUIDS[1], "descriptionPlain": "acme role one with enough words"},
+        ]},
+        _ashby_board_url("globex"): {"jobs": [
+            {"id": _ASHBY_UUIDS[2], "descriptionPlain": "globex role with enough words"},
+        ]},
+    }
+    calls = []
+
+    def fetch(api_url):
+        calls.append(api_url)
+        return boards[api_url]
+
+    counts = enrich_new(conn, fetch_json=fetch)
+    assert counts["enriched"] == 3
+    # each org board fetched exactly once; no org refetched, no cross-org collision
+    assert sorted(calls) == sorted(boards)
+
+
+def test_enrich_new_ashby_absent_posting_permanent_others_enriched(conn):
+    # Board fetched fine but one posting's id is missing from it -> that posting is
+    # permanent ("no description"), the rest enrich, and the board is still fetched once.
+    _insert_ashby_org(conn)  # three uuids
+    board = {"jobs": [
+        {"id": _ASHBY_UUIDS[0], "descriptionPlain": "present zero with enough words"},
+        {"id": _ASHBY_UUIDS[1], "descriptionPlain": "present one with enough words"},
+        # _ASHBY_UUIDS[2] intentionally absent
+    ]}
+    calls = []
+
+    def fetch(api_url):
+        calls.append(api_url)
+        return board
+
+    counts = enrich_new(conn, fetch_json=fetch, cap=3)
+    assert counts == {"enriched": 2, "permanent_failed": 1, "transient_failed": 0, "candidates": 3}
+    assert calls == [_ASHBY_BOARD_URL]  # one shared fetch despite a per-posting miss
+    # the absent posting is perma-marked (attempts==cap) so it is never reselected
+    assert conn.execute(
+        "select enrich_attempts from jobs where dedupe_key='ashby2'"
+    ).fetchone()[0] == 3
+
+
+def test_enrich_new_mixed_ats_only_board_scoped_is_cached(conn):
+    # Ashby (board-scoped) shares one board fetch; Greenhouse (per-job) hits its own
+    # endpoint directly. Confirms the board_scoped gate routes each ATS correctly.
+    _insert_ashby_org(conn)  # three ashby postings, one org
+    _insert(conn, dedupe_key="gh", url=_GH.format(n=500))  # one greenhouse posting
+    board = {"jobs": [
+        {"id": u, "descriptionPlain": f"ashby {u} with enough words"} for u in _ASHBY_UUIDS
+    ]}
+    calls = []
+
+    def fetch(api_url):
+        calls.append(api_url)
+        if "greenhouse" in api_url:
+            return {"content": "&lt;p&gt;greenhouse JD with enough words&lt;/p&gt;"}
+        return board
+
+    counts = enrich_new(conn, fetch_json=fetch)
+    assert counts["enriched"] == 4
+    assert [c for c in calls if "ashbyhq" in c] == [_ASHBY_BOARD_URL]   # cached: one fetch for 3 postings
+    assert len([c for c in calls if "greenhouse" in c]) == 1            # per-job: direct, not cached
+
+
 # ---------------------------------------------------------------------------
 # Task 8 — merge-no-clobber durability
 # ---------------------------------------------------------------------------
