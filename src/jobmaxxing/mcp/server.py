@@ -27,13 +27,14 @@ def _store() -> S3Store:
 
 @mcp.tool()
 def query_jobs(status: str | None = None, resume_type: str | None = None,
-               company: str | None = None, since_days: int | None = None,
-               limit: int = 50) -> list[dict]:
-    """List postings from the feed, newest first, filtered by status/resume_type/company/recency.
-    company is a case-insensitive substring; since_days bounds scraped_at. limit defaults to 50, max 200."""
+               company: str | None = None, jd_source: str | None = None,
+               since_days: int | None = None, limit: int = 50) -> list[dict]:
+    """List postings from the feed, newest first, filtered by status/resume_type/company/jd_source/recency.
+    company is a case-insensitive substring; jd_source filters how the JD was obtained ('recovered' for
+    find-elsewhere JDs to spot-check); since_days bounds scraped_at. limit defaults to 50, max 200."""
     with _conn() as conn:
-        return tools.query_jobs(conn, status=status, resume_type=resume_type,
-                                company=company, since_days=since_days, limit=limit)
+        return tools.query_jobs(conn, status=status, resume_type=resume_type, company=company,
+                                jd_source=jd_source, since_days=since_days, limit=limit)
 
 
 @mcp.tool()
@@ -83,6 +84,31 @@ def set_status(job_id: str, status: str) -> dict:
     approve a job FOR TAILORING, prefer the dedicated `approve` tool over this."""
     with _conn() as conn:
         return tools.set_status(conn, job_id, status)
+
+
+@mcp.tool()
+def nightly_queue(limit: int = 50) -> list[dict]:
+    """Tonight's manual-capture worklist: relevant, still-JD-less jobs that both the headless Workday
+    worker and find-elsewhere gave up on. Open each in your own browser to read the JD, then call
+    set_description. limit defaults to 50, max 200."""
+    with _conn() as conn:
+        return tools.nightly_queue(conn, limit=limit)
+
+
+@mcp.tool()
+def set_description(job_id: str, text: str) -> dict:
+    """Ingest a job description you obtained for a job_id (e.g. pasted from the posting page). Stores
+    it (jd_source='manual') and resets routing so the next routing run classifies it with the JD."""
+    with _conn() as conn:
+        return tools.set_description(conn, job_id, text)
+
+
+@mcp.tool()
+def reject_recovered(job_id: str) -> dict:
+    """Discard a wrong auto-recovered JD (jd_source='recovered'): clears it and returns the job to the
+    nightly_queue for manual capture. Errors if the job's JD was not auto-recovered."""
+    with _conn() as conn:
+        return tools.reject_recovered(conn, job_id)
 
 
 def main() -> None:

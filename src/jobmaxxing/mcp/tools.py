@@ -16,6 +16,7 @@ VALID_STATUSES = {
     "new", "routed", "approved_for_tailoring", "tailored", "reviewed", "applied", "rejected",
 }
 _QUERY_COLS = ["id", "company", "title", "status", "resume_type", "route_confidence", "url", "posted_at"]
+_QUEUE_COLS = ["id", "company", "title", "url", "resume_type", "route_confidence", "scraped_at"]
 
 
 def _json_safe(value):
@@ -25,8 +26,55 @@ def _json_safe(value):
     return value
 
 
+def nightly_queue(conn, *, limit=50) -> list[dict]:
+    """The operator's manual-capture worklist: relevant, still-JD-less jobs both the headless
+    worker and find-elsewhere gave up on (from the nightly_queue view). limit hard-capped at 200."""
+    capped = max(1, min(int(limit), 200))
+    rows = conn.execute(
+        f"select {', '.join(_QUEUE_COLS)} from nightly_queue limit %s", (capped,)
+    ).fetchall()
+    return [{c: _json_safe(v) for c, v in zip(_QUEUE_COLS, row)} for row in rows]
+
+
+_RECOVER_CAP = 2   # must match recover_jd's cap so find-elsewhere won't re-grab a rejected JD
+
+
+def reject_recovered(conn, job_id) -> dict:
+    """Reject a wrong recovered JD: clear the description, cap recover_attempts so find-elsewhere
+    won't re-grab it, keep resume_type so the job drops back into nightly_queue for manual capture.
+    Guarded to jd_source='recovered' so it can't accidentally wipe an ATS/manual JD."""
+    with conn.transaction():
+        cur = conn.execute(
+            "update jobs set description=null, jd_source=null, "
+            "recover_attempts=greatest(recover_attempts, %s) "
+            "where id=%s and jd_source='recovered'",
+            (_RECOVER_CAP, job_id),
+        )
+        if cur.rowcount == 0:
+            raise ValueError(f"no recovered job with id {job_id}")
+    return {"job_id": str(job_id), "status": "rejected_recovered"}
+
+
+def set_description(conn, job_id, text) -> dict:
+    """Ingest a JD the operator obtained (pasted, or fetched by Claude-in-Chrome). Writes the
+    description, marks jd_source='manual', and resets resume_type/route_method to NULL (the reset
+    contract) so the next route_new re-routes it with the JD — then it can be approved + tailored."""
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("description text is empty")
+    with conn.transaction():
+        cur = conn.execute(
+            "update jobs set description=%s, jd_source='manual', resume_type=null, route_method=null "
+            "where id=%s",
+            (text, job_id),
+        )
+        if cur.rowcount == 0:
+            raise ValueError(f"no job with id {job_id}")
+    return {"job_id": str(job_id), "jd_source": "manual", "chars": len(text)}
+
+
 def query_jobs(conn, *, status=None, resume_type=None, company=None,
-               since_days=None, limit=50) -> list[dict]:
+               jd_source=None, since_days=None, limit=50) -> list[dict]:
     """Filtered, capped view of the feed (newest first). limit hard-capped at 200."""
     clauses, params = [], []
     if status is not None:
@@ -38,6 +86,9 @@ def query_jobs(conn, *, status=None, resume_type=None, company=None,
     if company is not None:
         clauses.append("company ilike %s")
         params.append(f"%{company}%")
+    if jd_source is not None:
+        clauses.append("jd_source = %s")
+        params.append(jd_source)
     if since_days is not None:
         clauses.append("scraped_at >= %s")
         params.append(datetime.now(timezone.utc) - timedelta(days=int(since_days)))
