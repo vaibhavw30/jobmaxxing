@@ -159,6 +159,18 @@ To measure real-world yield or to run the live end-to-end test:
     uv run --extra headless python scripts/spike_workday.py 30
     JOBMAXXING_E2E=1 uv run --extra headless pytest tests/test_workday_e2e.py -v
 
+### JD recovery (find-elsewhere, local)
+
+For Workday jobs that can't be enriched, run the recovery worker LOCALLY (residential IP — it
+free-searches DuckDuckGo and reads `JobPosting` JSON-LD from aggregators/company sites):
+
+    uv run python -m jobmaxxing.recover_jd
+
+It targets relevant (title-routed), description-less Workday rows, accepts a JD only on a
+req-id/back-link match or an LLM-confirmed fuzzy match, writes it with `jd_source='recovered'`
+(flagged for review), and resets routing so the next poll re-routes it with the real JD.
+Optional live check: `JOBMAXXING_E2E=1 uv run pytest tests/test_recover_e2e.py -v`.
+
 ## Status & open items
 
 Phases 1–4 are built: core feed (ingestion), routing, tailoring, and the MCP
