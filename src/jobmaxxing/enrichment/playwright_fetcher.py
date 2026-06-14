@@ -75,11 +75,15 @@ class PlaywrightFetcher:
         captured: dict = {}
 
         def on_response(resp):
-            if target_cxs and resp.url.split("?", 1)[0] == target_cxs and resp.status == 200:
-                try:
-                    captured["payload"] = resp.json()
-                except Exception:  # noqa: BLE001
-                    pass
+            # Capture THIS job's exact cxs endpoint (not any /job/ cxs — a stale page can fire
+            # a cxs call for a featured job, whose payload would be a wrong description).
+            if target_cxs and resp.url.split("?", 1)[0] == target_cxs:
+                captured["status"] = resp.status  # the SPA's own call may be 403/404 even when the page loads
+                if resp.status == 200:
+                    try:
+                        captured["payload"] = resp.json()
+                    except Exception:  # noqa: BLE001
+                        pass
 
         page.on("response", on_response)
         title = ""
@@ -93,9 +97,16 @@ class PlaywrightFetcher:
             page.close()
         if "payload" in captured:
             return captured["payload"]
+        if "status" in captured:
+            # The SPA fired this job's cxs but not a parseable 200. Classify by its real status:
+            # 403/429/503 -> blocked (the API itself is gated; transient, not "gone"),
+            # 404/410 -> the posting is gone (permanent). _classify_status raises accordingly.
+            _classify_status(captured["status"])
+            raise WorkdayNotFound("cxs 200 but unparseable payload")  # 200-without-body: treat as gone
+        # No job cxs fired at all -> a Cloudflare interstitial (retryable) or a genuinely dead page.
         if _looks_like_challenge(title):
             raise WorkdayBlocked("render blocked by cloudflare challenge")
-        raise WorkdayNotFound("no cxs job payload from rendered page")
+        raise WorkdayNotFound("no cxs job call from rendered page")
 
     def close(self):
         # Defensive: a failure closing one resource must not leak the others (called from
