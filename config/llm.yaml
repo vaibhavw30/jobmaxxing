@@ -2,9 +2,9 @@
 # skipping a provider whose API key env var is unset, and falling through on error.
 tasks:
   route:
-    - {provider: openai, model: gpt-4o-mini}
+    - {provider: anthropic, model: claude-3-5-haiku-latest}   # primary: light + the only key set right now
+    - {provider: openai, model: gpt-4o-mini}                  # fallbacks (skipped while their keys are unset)
     - {provider: xai, model: grok-3-mini}
-    - {provider: anthropic, model: claude-3-5-haiku-latest}
   tailor:
     - {provider: anthropic, model: claude-sonnet-4-latest}
     - {provider: openai, model: gpt-4o}
