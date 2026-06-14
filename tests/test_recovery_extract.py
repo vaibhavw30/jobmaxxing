@@ -41,3 +41,12 @@ def test_extract_returns_none_when_absent_or_no_description():
     assert extract_job_posting("<html>no ld json</html>") is None
     assert extract_job_posting('<script type="application/ld+json">{"@type":"JobPosting"}</script>') is None
     assert extract_job_posting('<script type="application/ld+json">not json</script>') is None
+
+
+def test_extract_handles_type_as_list():
+    # schema.org/Google allow @type to be a list; aggregators emit this form.
+    html = ('<script type="application/ld+json">'
+            '{"@type":["JobPosting","WebPage"],"description":"d","hiringOrganization":"Acme"}'
+            '</script>')
+    jp = extract_job_posting(html)
+    assert jp is not None and jp.description == "d" and jp.company == "Acme"

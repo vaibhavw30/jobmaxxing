@@ -27,3 +27,14 @@ def test_ddg_search_respects_max_results():
     def fake_fetch(url):
         return _DDG_HTML
     assert len(ddg_search("q", fetch_text=fake_fetch, max_results=1)) == 1
+
+
+def test_ddg_search_handles_href_first_order_and_class_variant():
+    # order-agnostic: href before class, plus a class-variant suffix
+    html = ('<a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fj&rut=x" '
+            'class="result__a result__a--clkd">x</a>')
+    assert ddg_search("q", fetch_text=lambda u: html) == ["https://example.com/j"]
+
+
+def test_ddg_search_empty_body_returns_empty():
+    assert ddg_search("q", fetch_text=lambda u: "") == []

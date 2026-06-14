@@ -37,6 +37,13 @@ def _text(v, prefer_value: bool = False):
     return v if isinstance(v, str) else None
 
 
+def _is_job_posting(node) -> bool:
+    """schema.org @type may be a string OR a list (e.g. ["JobPosting", "WebPage"]) — aggregators
+    following Google's structured-data examples emit the list form, so handle both."""
+    t = node.get("@type")
+    return t == "JobPosting" or (isinstance(t, list) and "JobPosting" in t)
+
+
 def extract_job_posting(html_text: str, *, source_url: str | None = None) -> JobPosting | None:
     """Return the first JSON-LD JobPosting with a non-empty description, or None."""
     for block in _LD.findall(html_text):
@@ -46,7 +53,7 @@ def extract_job_posting(html_text: str, *, source_url: str | None = None) -> Job
             continue
         nodes = data.get("@graph", [data]) if isinstance(data, dict) else data
         for n in (nodes if isinstance(nodes, list) else [nodes]):
-            if isinstance(n, dict) and n.get("@type") == "JobPosting" and n.get("description"):
+            if isinstance(n, dict) and _is_job_posting(n) and n.get("description"):
                 return JobPosting(
                     description=n["description"],
                     title=n.get("title"),
