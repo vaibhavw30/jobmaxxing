@@ -88,3 +88,47 @@ def test_upsert_refreshes_scraped_at_on_merge(conn):
     upsert_jobs(conn, [_rec(source="greenhouse", url="https://boards.greenhouse.io/acme/jobs/1")])
     after = conn.execute("select scraped_at from jobs").fetchone()[0]
     assert after >= before   # merge refreshed scraped_at (separate transactions -> now() advances)
+
+
+def test_upsert_inserts_a_batch_of_new_rows(conn):
+    apply_migrations(conn)
+    recs = [_rec(dedupe_key=f"acme|swe {i}", title=f"SWE Intern {i}") for i in range(5)]
+    counts = upsert_jobs(conn, recs)
+    assert counts == {"inserted": 5, "merged": 0}
+    assert conn.execute("select count(*) from jobs").fetchone()[0] == 5
+
+
+def test_upsert_mixed_new_and_existing_batch(conn):
+    apply_migrations(conn)
+    upsert_jobs(conn, [_rec(dedupe_key="acme|swe intern", description=None)])
+    counts = upsert_jobs(conn, [
+        _rec(dedupe_key="acme|swe intern", source="greenhouse",
+             url="https://boards.greenhouse.io/acme/jobs/1", description="full JD"),
+        _rec(dedupe_key="acme|ml intern", title="ML Intern"),
+    ])
+    assert counts == {"inserted": 1, "merged": 1}
+    assert conn.execute("select count(*) from jobs").fetchone()[0] == 2
+    desc = conn.execute("select description from jobs where dedupe_key='acme|swe intern'").fetchone()[0]
+    assert desc == "full JD"
+
+
+def test_upsert_collapses_intra_batch_duplicate_keys(conn):
+    apply_migrations(conn)
+    counts = upsert_jobs(conn, [
+        _rec(dedupe_key="acme|swe intern", description=None),
+        _rec(dedupe_key="acme|swe intern", source="greenhouse",
+             url="https://boards.greenhouse.io/acme/jobs/1", description="full JD"),
+    ])
+    assert counts["inserted"] == 1
+    assert conn.execute("select count(*) from jobs").fetchone()[0] == 1
+    desc = conn.execute("select description from jobs").fetchone()[0]
+    assert desc == "full JD"
+
+
+def test_upsert_batch_is_idempotent(conn):
+    apply_migrations(conn)
+    recs = [_rec(dedupe_key=f"acme|swe {i}", title=f"SWE Intern {i}") for i in range(3)]
+    upsert_jobs(conn, recs)
+    counts = upsert_jobs(conn, recs)
+    assert counts == {"inserted": 0, "merged": 3}
+    assert conn.execute("select count(*) from jobs").fetchone()[0] == 3
