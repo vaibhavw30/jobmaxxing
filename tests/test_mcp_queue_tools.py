@@ -49,6 +49,12 @@ def test_nightly_queue_caps_limit(conn):
     assert len(nightly_queue(conn, limit=2)) == 2
 
 
+def test_nightly_queue_excludes_not_target(conn):
+    # explicit guard: a not_target job is excluded even if (future) it carried a resume_type
+    _insert(conn, dedupe_key="q|nt", route_method="not_target", resume_type="swe", recover_attempts=2)
+    assert nightly_queue(conn) == []
+
+
 from jobmaxxing.mcp.tools import set_description
 
 
@@ -100,6 +106,11 @@ def test_reject_recovered_only_touches_recovered_rows(conn):
         reject_recovered(conn, jid)
     # unchanged
     assert conn.execute("select description from jobs where id=%s", (jid,)).fetchone()[0] == "an ATS jd"
+
+
+def test_reject_recovered_unknown_id_raises(conn):
+    with pytest.raises(ValueError, match="no recovered job"):
+        reject_recovered(conn, uuid.uuid4())
 
 
 from jobmaxxing.mcp.tools import query_jobs

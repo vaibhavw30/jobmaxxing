@@ -7,5 +7,6 @@ create or replace view nightly_queue as
   where coalesce(description, '') = ''
     and resume_type is not null
     and route_method is distinct from 'manual'
+    and route_method is distinct from 'not_target'   -- explicit: never surface non-target roles
     and recover_attempts >= 2
   order by scraped_at desc;
