@@ -51,3 +51,36 @@ def test_resolve_propagates_non_llmunavailable_errors():
 
     with pytest.raises(RuntimeError):
         resolve(["ai", "mle"], "x", "y", llm_complete=boom, config=CONFIG)
+
+
+from jobmaxxing.routing.tiebreaker import resolve_title_only
+
+_TT_CONFIG = {
+    "types": {
+        "ai": {"definition": "AI engineering"},
+        "mle": {"definition": "ML engineering"},
+    }
+}
+
+
+def test_resolve_title_only_caps_confidence_and_tags_method():
+    def fake_llm(task, messages, **kw):
+        return '{"type": "ai", "confidence": 0.95}'
+    d = resolve_title_only(["ai", "mle"], "AI / ML Engineer Intern", llm_complete=fake_llm, config=_TT_CONFIG)
+    assert d.resume_type == "ai"
+    assert d.method == "llm_title"
+    assert d.confidence == 0.4          # capped at _TITLE_ROUTE_CONFIDENCE even though reply said 0.95
+
+
+def test_resolve_title_only_defers_when_llm_unavailable():
+    def fake_llm(task, messages, **kw):
+        raise LLMUnavailable("no provider")
+    d = resolve_title_only(["ai", "mle"], "AI / ML Intern", llm_complete=fake_llm, config=_TT_CONFIG)
+    assert d.method is None             # defer -> retry next run
+
+
+def test_resolve_title_only_defers_on_unparseable_reply():
+    def fake_llm(task, messages, **kw):
+        return "not json at all"
+    d = resolve_title_only(["ai", "mle"], "AI / ML Intern", llm_complete=fake_llm, config=_TT_CONFIG)
+    assert d.method is None

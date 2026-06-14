@@ -53,6 +53,10 @@ def parse_tiebreaker_response(text: str | None, allowed_types: list[str]):
 # signal, this is a deterministic best-guess among the candidates", not a confident route.
 _FALLBACK_CONFIDENCE = 0.4
 
+# Provisional confidence for a title-only route: capped low so it reads as "classified from
+# the title, no JD" in the funnel — below any auto-advance threshold; the operator stays the gate.
+_TITLE_ROUTE_CONFIDENCE = 0.4
+
 
 def resolve(candidates: list[str], title, description, *, llm_complete, config) -> RouteDecision:
     """Resolve an ambiguous posting with one schema-gated LLM call, choosing among `candidates`.
@@ -79,3 +83,20 @@ def resolve(candidates: list[str], title, description, *, llm_complete, config) 
     jd = score_jd(description, config)
     best = max(candidates, key=lambda t: jd.get(t, 0.0))
     return RouteDecision(resume_type=best, method="rules", confidence=_FALLBACK_CONFIDENCE)
+
+
+def resolve_title_only(candidates: list[str], title, *, llm_complete, config) -> RouteDecision:
+    """Tiebreak among `candidates` using the TITLE alone (no JD). method='llm_title' with a
+    capped-low confidence. On LLMUnavailable / unparseable reply -> defer (retry next run)."""
+    messages = build_tiebreaker_messages(
+        title, "(no job description available — classify from the title)", candidates, config
+    )
+    try:
+        text = llm_complete("route", messages, max_tokens=200, response_format={"type": "json_object"})
+    except LLMUnavailable:
+        return RouteDecision(resume_type=None, method=None, confidence=0.0)
+    parsed = parse_tiebreaker_response(text, candidates)
+    if parsed is None:
+        return RouteDecision(resume_type=None, method=None, confidence=0.0)
+    resume_type, conf = parsed
+    return RouteDecision(resume_type=resume_type, method="llm_title", confidence=min(conf, _TITLE_ROUTE_CONFIDENCE))
