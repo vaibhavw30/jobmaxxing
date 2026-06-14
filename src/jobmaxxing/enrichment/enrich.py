@@ -11,13 +11,14 @@ from .adapters import adapter_for, SUPPORTED_HOSTS_SQL
 
 logger = logging.getLogger(__name__)
 
-# 4xx (except 429) means retrying won't help -> permanent. 429 and 5xx -> transient.
-_PERMANENT_HTTP = lambda code: 400 <= code < 500 and code != 429  # noqa: E731
+def _is_permanent_http(code: int) -> bool:
+    """4xx except 429 means retrying won't help -> permanent. 429 and 5xx -> transient."""
+    return 400 <= code < 500 and code != 429
 
 
 def classify_error(exc: Exception) -> str:
     """'permanent' (never retry) or 'transient' (retry until cap)."""
-    if isinstance(exc, httpx.HTTPStatusError) and _PERMANENT_HTTP(exc.response.status_code):
+    if isinstance(exc, httpx.HTTPStatusError) and _is_permanent_http(exc.response.status_code):
         return "permanent"
     return "transient"  # 429, 5xx, timeouts, connection errors
 
@@ -82,6 +83,9 @@ def enrich_new(
 
     with conn.transaction(), conn.cursor() as cur:
         if enriched:
+            # Note: enrich_attempts is intentionally NOT reset here. A successfully
+            # enriched row now has a non-empty description, so coalesce(description,'')=''
+            # excludes it from the candidate query regardless of its attempt count.
             cur.executemany(
                 "update jobs set description=%s, enriched_at=now(), enrich_error=null where id=%s",
                 enriched,

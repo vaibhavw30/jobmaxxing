@@ -2,7 +2,10 @@ import httpx
 import psycopg
 import pytest
 
+from jobmaxxing.enrichment.enrich import _fetch_one, enrich_new
 from jobmaxxing.migrate import apply_migrations
+from jobmaxxing.models import JobRecord
+from jobmaxxing.store import upsert_jobs
 
 
 @pytest.fixture
@@ -27,8 +30,7 @@ def test_migration_adds_enrichment_columns(conn):
 
 
 # ---------------------------------------------------------------------------
-# Task 6 — _fetch_one (pure, no DB, no network). Imports deferred so Task 1
-# stays collectable while the sibling adapters module is not yet merged.
+# Task 6 — _fetch_one (pure, no DB, no network)
 # ---------------------------------------------------------------------------
 
 def _http_error(status):
@@ -38,7 +40,6 @@ def _http_error(status):
 
 
 def test_fetch_one_enriched_on_success():
-    from jobmaxxing.enrichment.enrich import _fetch_one
     def fake(api_url):
         return {"content": "&lt;p&gt;hi&lt;/p&gt;"}
     out = _fetch_one("id1", "https://job-boards.greenhouse.io/x/jobs/1", fake)
@@ -47,7 +48,6 @@ def test_fetch_one_enriched_on_success():
 
 
 def test_fetch_one_permanent_on_404():
-    from jobmaxxing.enrichment.enrich import _fetch_one
     def fake(api_url):
         raise _http_error(404)
     out = _fetch_one("id1", "https://job-boards.greenhouse.io/x/jobs/1", fake)
@@ -55,7 +55,6 @@ def test_fetch_one_permanent_on_404():
 
 
 def test_fetch_one_transient_on_429_and_timeout():
-    from jobmaxxing.enrichment.enrich import _fetch_one
     def fake_429(api_url):
         raise _http_error(429)
     def fake_timeout(api_url):
@@ -65,7 +64,6 @@ def test_fetch_one_transient_on_429_and_timeout():
 
 
 def test_fetch_one_permanent_when_no_description_parsed():
-    from jobmaxxing.enrichment.enrich import _fetch_one
     def fake(api_url):
         return {"content": ""}
     out = _fetch_one("id1", "https://job-boards.greenhouse.io/x/jobs/1", fake)
@@ -73,7 +71,6 @@ def test_fetch_one_permanent_when_no_description_parsed():
 
 
 def test_fetch_one_permanent_when_unsupported_host():
-    from jobmaxxing.enrichment.enrich import _fetch_one
     def fake(api_url):
         raise AssertionError("must not fetch an unsupported host")
     out = _fetch_one("id1", "https://comcast.wd5.myworkdayjobs.com/x/job/y/z_R1", fake)
@@ -101,7 +98,6 @@ def _fake_fetch_ok(api_url):
 
 
 def test_enrich_new_fills_description_and_sets_enriched_at(conn):
-    from jobmaxxing.enrichment.enrich import enrich_new
     _insert(conn, dedupe_key="a", url=_GH.format(n=1))
     counts = enrich_new(conn, fetch_json=_fake_fetch_ok)
     assert counts == {"enriched": 1, "permanent_failed": 0, "transient_failed": 0, "candidates": 1}
@@ -114,7 +110,6 @@ def test_enrich_new_fills_description_and_sets_enriched_at(conn):
 
 
 def test_enrich_new_marks_permanent_and_stops_reselecting(conn):
-    from jobmaxxing.enrichment.enrich import enrich_new
     _insert(conn, dedupe_key="b", url=_GH.format(n=2))
 
     def fake_404(api_url):
@@ -130,7 +125,6 @@ def test_enrich_new_marks_permanent_and_stops_reselecting(conn):
 
 
 def test_enrich_new_transient_increments_then_caps(conn):
-    from jobmaxxing.enrichment.enrich import enrich_new
     _insert(conn, dedupe_key="c", url=_GH.format(n=3))
 
     def fake_timeout(api_url):
@@ -145,7 +139,6 @@ def test_enrich_new_transient_increments_then_caps(conn):
 
 
 def test_enrich_new_respects_max_fetches(conn):
-    from jobmaxxing.enrichment.enrich import enrich_new
     for i in range(5):
         _insert(conn, dedupe_key=f"d{i}", url=_GH.format(n=100 + i))
     counts = enrich_new(conn, fetch_json=_fake_fetch_ok, max_fetches=2)
@@ -154,7 +147,6 @@ def test_enrich_new_respects_max_fetches(conn):
 
 
 def test_enrich_new_skips_unsupported_and_manual_and_already_described(conn):
-    from jobmaxxing.enrichment.enrich import enrich_new
     _insert(conn, dedupe_key="wd", url="https://x.wd5.myworkdayjobs.com/en/x/job/y/z_R1")  # unsupported host
     _insert(conn, dedupe_key="man", url=_GH.format(n=9), route_method="manual")            # manual
     _insert(conn, dedupe_key="has", url=_GH.format(n=10), description="already here")        # has desc
@@ -170,9 +162,6 @@ def test_enrich_new_skips_unsupported_and_manual_and_already_described(conn):
 # ---------------------------------------------------------------------------
 
 def test_enriched_description_survives_reingest(conn):
-    from jobmaxxing.enrichment.enrich import enrich_new
-    from jobmaxxing.models import JobRecord
-    from jobmaxxing.store import upsert_jobs
     _insert(conn, dedupe_key="keep|me", url=_GH.format(n=42))
     enrich_new(conn, fetch_json=_fake_fetch_ok)
     before = conn.execute(
