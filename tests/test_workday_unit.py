@@ -35,3 +35,39 @@ def test_parse_workday_none_when_absent_or_empty():
     assert parse_workday({"jobPostingInfo": {}}) is None
     assert parse_workday({}) is None
     assert parse_workday({"jobPostingInfo": {"jobDescription": ""}}) is None
+
+
+import pytest
+
+from jobmaxxing.enrichment.workday import (
+    WorkdayBlocked, WorkdayNotFound, WorkdayTransient,
+    _classify_status, _looks_like_challenge,
+)
+
+
+def test_classify_status_ok_returns_none():
+    assert _classify_status(200) is None
+
+
+@pytest.mark.parametrize("code", [403, 429, 503])
+def test_classify_status_blocked(code):
+    with pytest.raises(WorkdayBlocked):
+        _classify_status(code)
+
+
+@pytest.mark.parametrize("code", [404, 410])
+def test_classify_status_not_found(code):
+    with pytest.raises(WorkdayNotFound):
+        _classify_status(code)
+
+
+def test_classify_status_other_is_transient():
+    with pytest.raises(WorkdayTransient):
+        _classify_status(500)
+
+
+def test_looks_like_challenge():
+    assert _looks_like_challenge("Just a moment...") is True
+    assert _looks_like_challenge("Attention Required! | Cloudflare") is True
+    assert _looks_like_challenge("Software Engineer Intern - Micron") is False
+    assert _looks_like_challenge("") is False
