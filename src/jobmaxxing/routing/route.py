@@ -45,7 +45,9 @@ def route_new(conn: psycopg.Connection, *, config=None, llm_complete=None, max_l
 
     Decisions are computed per row (so one bad row never aborts the run); the resulting
     UPDATEs are batched into a single pipelined executemany in one transaction, which
-    collapses thousands of remote round-trips into one commit.
+    collapses thousands of remote round-trips into one commit. A write failure propagates
+    as an exception (the whole batch rolls back, retried idempotently next run) — the
+    returned counts are only meaningful when the function returns normally.
     """
     cfg = config if config is not None else load_routing_config()
     do_llm = llm_complete if llm_complete is not None else llm_complete_default
@@ -75,8 +77,8 @@ def route_new(conn: psycopg.Connection, *, config=None, llm_complete=None, max_l
         counts[decision.method] += 1
 
     if updates:
-        with conn.transaction():
-            conn.cursor().executemany(
+        with conn.transaction(), conn.cursor() as cur:
+            cur.executemany(
                 "update jobs set resume_type=%s, route_method=%s, route_confidence=%s, status='routed' where id=%s",
                 updates,
             )
