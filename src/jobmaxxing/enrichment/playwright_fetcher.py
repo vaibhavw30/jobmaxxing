@@ -8,7 +8,7 @@ import httpx
 
 from .workday import (
     WorkdayBlocked, WorkdayNotFound, WorkdayTransient,
-    _classify_status, _looks_like_challenge, workday_host,
+    _classify_status, _looks_like_challenge, workday_cxs_url, workday_host,
 )
 
 _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -67,11 +67,15 @@ class PlaywrightFetcher:
 
     def fetch_via_render(self, job_url: str) -> dict:
         ctx = self._cleared_context(workday_host(job_url))
+        # Match THIS job's exact cxs endpoint (sans query), not any /job/ cxs call: a stale
+        # posting can redirect to the careers home, whose SPA fires a cxs call for a featured
+        # job — capturing that would silently write a foreign description.
+        target_cxs = workday_cxs_url(job_url)
         page = ctx.new_page()
         captured: dict = {}
 
         def on_response(resp):
-            if "/wday/cxs/" in resp.url and "/job/" in resp.url and resp.status == 200:
+            if target_cxs and resp.url.split("?", 1)[0] == target_cxs and resp.status == 200:
                 try:
                     captured["payload"] = resp.json()
                 except Exception:  # noqa: BLE001
