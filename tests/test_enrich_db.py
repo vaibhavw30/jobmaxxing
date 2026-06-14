@@ -389,3 +389,22 @@ def test_enriched_description_survives_reingest(conn):
     ).fetchone()
     assert after[0] == before[0]      # description preserved (empty is falsy in merge)
     assert after[1] == before[1]      # enriched_at untouched by _UPDATE_SQL
+
+
+def test_apply_outcomes_writes_each_kind(conn):
+    from jobmaxxing.enrichment.enrich import Outcome, _apply_outcomes
+    _insert(conn, dedupe_key="ao_e", url=_GH.format(n=701))
+    _insert(conn, dedupe_key="ao_p", url=_GH.format(n=702))
+    _insert(conn, dedupe_key="ao_t", url=_GH.format(n=703))
+    ids = {k: conn.execute("select id from jobs where dedupe_key=%s", (k,)).fetchone()[0]
+           for k in ("ao_e", "ao_p", "ao_t")}
+    outcomes = [
+        Outcome(ids["ao_e"], "enriched", "filled in", None),
+        Outcome(ids["ao_p"], "permanent", "gone", None),
+        Outcome(ids["ao_t"], "transient", "slow", None),
+    ]
+    counts = _apply_outcomes(conn, outcomes, cap=3)
+    assert counts == {"enriched": 1, "permanent_failed": 1, "transient_failed": 1}
+    assert conn.execute("select description from jobs where id=%s", (ids["ao_e"],)).fetchone()[0] == "filled in"
+    assert conn.execute("select enrich_attempts from jobs where id=%s", (ids["ao_p"],)).fetchone()[0] == 3
+    assert conn.execute("select enrich_attempts from jobs where id=%s", (ids["ao_t"],)).fetchone()[0] == 1

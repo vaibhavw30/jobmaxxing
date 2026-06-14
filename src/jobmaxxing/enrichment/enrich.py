@@ -85,6 +85,36 @@ def _fetch_one(job_id, url: str, fetch_json, board_cache: "_BoardFetchCache | No
     return Outcome(job_id, "enriched", description, None)
 
 
+def _apply_outcomes(conn, outcomes, *, cap):
+    """Batch-write fetch outcomes in one transaction. Returns kind counts (no 'candidates').
+
+    enriched -> set description + enriched_at, clear error (attempts intentionally NOT reset:
+                a non-empty description already excludes the row from the candidate query).
+    permanent -> set enrich_attempts = cap (never reselected) + error.
+    transient -> enrich_attempts += 1 + error (retried until the cap).
+    """
+    enriched = [(o.description, o.job_id) for o in outcomes if o.kind == "enriched"]
+    permanent = [(cap, o.error, o.job_id) for o in outcomes if o.kind == "permanent"]
+    transient = [(o.error, o.job_id) for o in outcomes if o.kind == "transient"]
+    with conn.transaction(), conn.cursor() as cur:
+        if enriched:
+            cur.executemany(
+                "update jobs set description=%s, enriched_at=now(), enrich_error=null where id=%s",
+                enriched,
+            )
+        if permanent:
+            cur.executemany(
+                "update jobs set enrich_attempts=%s, enrich_error=%s where id=%s",
+                permanent,
+            )
+        if transient:
+            cur.executemany(
+                "update jobs set enrich_attempts=enrich_attempts+1, enrich_error=%s where id=%s",
+                transient,
+            )
+    return {"enriched": len(enriched), "permanent_failed": len(permanent), "transient_failed": len(transient)}
+
+
 def enrich_new(
     conn: psycopg.Connection,
     *,
@@ -117,36 +147,8 @@ def enrich_new(
         for future in as_completed(futures):
             outcomes.append(future.result())
 
-    enriched = [(o.description, o.job_id) for o in outcomes if o.kind == "enriched"]
-    permanent = [(cap, o.error, o.job_id) for o in outcomes if o.kind == "permanent"]
-    transient = [(o.error, o.job_id) for o in outcomes if o.kind == "transient"]
-
-    with conn.transaction(), conn.cursor() as cur:
-        if enriched:
-            # Note: enrich_attempts is intentionally NOT reset here. A successfully
-            # enriched row now has a non-empty description, so coalesce(description,'')=''
-            # excludes it from the candidate query regardless of its attempt count.
-            cur.executemany(
-                "update jobs set description=%s, enriched_at=now(), enrich_error=null where id=%s",
-                enriched,
-            )
-        if permanent:
-            cur.executemany(
-                "update jobs set enrich_attempts=%s, enrich_error=%s where id=%s",
-                permanent,
-            )
-        if transient:
-            cur.executemany(
-                "update jobs set enrich_attempts=enrich_attempts+1, enrich_error=%s where id=%s",
-                transient,
-            )
-
-    counts = {
-        "enriched": len(enriched),
-        "permanent_failed": len(permanent),
-        "transient_failed": len(transient),
-        "candidates": len(rows),
-    }
+    counts = _apply_outcomes(conn, outcomes, cap=cap)
+    counts["candidates"] = len(rows)
     logger.info("enrich summary: %s", counts)
     return counts
 
