@@ -18,15 +18,13 @@ class GspreadClient:
 
     def __init__(self):
         import gspread
-        from google.oauth2.service_account import Credentials
         key_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE")
         sheet_id = os.environ.get("GSHEET_ID")
         if not key_path or not sheet_id:
             raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_FILE and GSHEET_ID must be set (see .env.example)")
-        creds = Credentials.from_service_account_file(
-            key_path, scopes=["https://www.googleapis.com/auth/spreadsheets"])
         self._gspread = gspread
-        self._ws = gspread.authorize(creds).open_by_key(sheet_id).sheet1
+        # gspread's canonical service-account entry point (no manual google-auth Credentials dance)
+        self._ws = gspread.service_account(filename=key_path).open_by_key(sheet_id).sheet1
 
     def header(self) -> list[str]:
         return self._ws.row_values(1)
@@ -36,7 +34,9 @@ class GspreadClient:
         return [{**r, "_row": i + 2} for i, r in enumerate(self._ws.get_all_records())]
 
     def ensure_header(self, header: list[str]) -> None:
-        if self._ws.row_values(1) != header:
+        # The tool owns columns A..(len(header)); compare only those so an operator's OWN extra
+        # columns appended AFTER them are never overwritten. (Don't insert columns between ours.)
+        if self._ws.row_values(1)[: len(header)] != header:
             self._ws.update(values=[header], range_name="A1")
 
     def append_rows(self, rows: list[list]) -> None:

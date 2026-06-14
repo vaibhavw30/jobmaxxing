@@ -1,6 +1,7 @@
 """Two-way Google Sheets sync for the operator decision sheet. Run LOCALLY:
 python -m jobmaxxing.sync_sheet"""
 
+import html
 import logging
 import re
 
@@ -18,8 +19,9 @@ _MAX_JD_CHARS = 40000     # Sheets cell limit is 50k; leave headroom
 
 
 def _plain(html_or_text, limit: int = _MAX_JD_CHARS) -> str:
-    """Strip HTML tags to plain text and truncate for a spreadsheet cell."""
-    text = re.sub(r"<[^>]+>", " ", html_or_text or "")
+    """Strip HTML tags to plain text (decoding entities so the operator sees real characters,
+    not &amp;/&nbsp;) and truncate for a spreadsheet cell."""
+    text = html.unescape(re.sub(r"<[^>]+>", " ", html_or_text or ""))
     text = re.sub(r"\s+", " ", text).strip()
     return text[:limit]
 
@@ -72,10 +74,13 @@ def sync_sheet(conn, client: SheetClient) -> dict:
         if existing is None:
             new_rows.append(data + ["", ""])          # blank decision cells
         else:
+            changed = False
             for col, val in zip(DATA_COLS, data):
                 if str(existing.get(col, "")) != str(val):
                     cell_updates.append((existing["_row"], col, val))
-            updated += 1
+                    changed = True
+            if changed:
+                updated += 1                          # rows actually changed (0 on a no-op re-sync)
     if new_rows:
         client.append_rows(new_rows)
     if cell_updates:

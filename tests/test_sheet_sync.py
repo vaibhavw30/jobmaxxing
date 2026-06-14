@@ -12,6 +12,11 @@ def test_plain_strips_html_collapses_and_truncates():
     assert len(_plain("x" * 50000, limit=100)) == 100
 
 
+def test_plain_decodes_html_entities():
+    assert _plain("Tom &amp; Jerry") == "Tom & Jerry"
+    assert _plain("<p>A&nbsp;B</p>") == "A B"
+
+
 def test_intended_status_applied_wins():
     assert _intended_status("Yes", "TRUE", "routed") == "applied"
     assert _intended_status("", "true", "new") == "applied"
@@ -135,6 +140,15 @@ def test_sync_is_idempotent(conn):
     fake.appended.clear(); fake.updates.clear()
     counts = sync_sheet(conn, fake)
     assert counts["appended"] == 0 and fake.updates == []        # nothing changed
+    assert counts["updated"] == 0                                # rows-changed count is 0 on a no-op
+
+
+def test_sync_skips_orphan_sheet_row(conn):
+    # a sheet row whose job_id isn't in the DB (e.g. a deleted job) is ignored, no crash
+    fake = FakeSheet(rows=[{"job_id": "00000000-0000-0000-0000-000000000000",
+                            "interested": "Yes", "applied": "", "_row": 2}])
+    counts = sync_sheet(conn, fake)
+    assert counts["pulled_approved_for_tailoring"] == 0          # orphan decision not applied
 
 
 # ---------------------------------------------------------------------------
