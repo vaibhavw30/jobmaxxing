@@ -26,6 +26,11 @@ jobs:
       - name: Sync deps (frozen)
         run: uv sync --frozen --no-dev
 
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: uv run python -m jobmaxxing.migrate
+
       - name: Run pollers
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
