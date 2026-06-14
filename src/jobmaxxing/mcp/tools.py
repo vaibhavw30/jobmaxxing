@@ -36,6 +36,24 @@ def nightly_queue(conn, *, limit=50) -> list[dict]:
     return [{c: _json_safe(v) for c, v in zip(_QUEUE_COLS, row)} for row in rows]
 
 
+def set_description(conn, job_id, text) -> dict:
+    """Ingest a JD the operator obtained (pasted, or fetched by Claude-in-Chrome). Writes the
+    description, marks jd_source='manual', and resets resume_type/route_method to NULL (the reset
+    contract) so the next route_new re-routes it with the JD — then it can be approved + tailored."""
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("description text is empty")
+    with conn.transaction():
+        cur = conn.execute(
+            "update jobs set description=%s, jd_source='manual', resume_type=null, route_method=null "
+            "where id=%s",
+            (text, job_id),
+        )
+        if cur.rowcount == 0:
+            raise ValueError(f"no job with id {job_id}")
+    return {"job_id": str(job_id), "jd_source": "manual", "chars": len(text)}
+
+
 def query_jobs(conn, *, status=None, resume_type=None, company=None,
                since_days=None, limit=50) -> list[dict]:
     """Filtered, capped view of the feed (newest first). limit hard-capped at 200."""

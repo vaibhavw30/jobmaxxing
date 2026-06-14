@@ -47,3 +47,28 @@ def test_nightly_queue_caps_limit(conn):
     for i in range(3):
         _insert(conn, dedupe_key=f"q|c{i}", recover_attempts=2)
     assert len(nightly_queue(conn, limit=2)) == 2
+
+
+from jobmaxxing.mcp.tools import set_description
+
+
+def test_set_description_writes_jd_and_resets_routing(conn):
+    jid = _insert(conn, dedupe_key="sd|1", resume_type="mle", route_method="llm_title", recover_attempts=2)
+    out = set_description(conn, jid, "  A real pasted job description with words.  ")
+    assert out["jd_source"] == "manual" and out["chars"] == len("A real pasted job description with words.")
+    row = conn.execute(
+        "select description, jd_source, resume_type, route_method from jobs where id=%s", (jid,)
+    ).fetchone()
+    assert row[0] == "A real pasted job description with words."
+    assert row[1] == "manual" and row[2] is None and row[3] is None     # reset so route_new re-routes
+
+
+def test_set_description_rejects_empty(conn):
+    jid = _insert(conn, dedupe_key="sd|2", recover_attempts=2)
+    with pytest.raises(ValueError, match="empty"):
+        set_description(conn, jid, "   ")
+
+
+def test_set_description_unknown_id_raises(conn):
+    with pytest.raises(ValueError, match="no job"):
+        set_description(conn, uuid.uuid4(), "some jd")
