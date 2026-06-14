@@ -7,7 +7,7 @@ from ..config import load_settings
 from ..llm.client import complete as llm_complete_default
 from .config import load_routing_config
 from .rules import route_by_rules
-from .tiebreaker import resolve
+from .tiebreaker import classify_title, resolve, resolve_title_only
 from .types import VALID_TYPES, Budget, RouteDecision
 
 logger = logging.getLogger(__name__)
@@ -17,24 +17,49 @@ _DEFER = RouteDecision(resume_type=None, method=None, confidence=0.0)
 # disambiguate), with modest confidence.
 _SINGLE_CANDIDATE_CONFIDENCE = 0.5
 
+_INTERNSHIP_MARKERS = (
+    "intern", "co-op", "coop", "co op", "student", "apprentic", "new grad",
+    "early career", "university", "campus", "trainee",
+)
+
+
+def _looks_like_internship(title: str | None) -> bool:
+    """Coarse gate: does the title look like an internship/early-career role? Used to skip
+    open-classification (and its LLM call) on obvious non-targets."""
+    t = (title or "").lower()
+    return any(m in t for m in _INTERNSHIP_MARKERS)
+
 
 def route_one(
-    title: str | None, description: str | None, config: dict, *, llm_complete, budget: Budget
+    title: str | None, description: str | None, config: dict, *, llm_complete, budget: Budget,
+    exhausted: bool = False, title_budget: Budget | None = None,
 ) -> RouteDecision:
-    """Route a single posting. Title-first deterministic; the LLM is used only for
-    ambiguous JD-bearing rows with >1 candidate, within budget; otherwise defer."""
+    """Route a single posting. Title-first deterministic; the LLM resolves ambiguous JD-bearing
+    rows. When `exhausted` (enrichment gave up, no JD) and a `title_budget` remains, route on the
+    title alone instead of deferring forever — tiebreaking among rule candidates, or open-classifying
+    a no-signal title (which a non-internship title short-circuits to `not_target` with no LLM call)."""
     outcome = route_by_rules(title, description, config)
     if outcome.decision == "routed":
         return RouteDecision(resume_type=outcome.resume_type, method="rules", confidence=outcome.confidence)
+
     if outcome.decision == "no_signal":
+        if exhausted and title_budget is not None and title_budget.remaining > 0:
+            if not _looks_like_internship(title):
+                return RouteDecision(resume_type=None, method="not_target", confidence=0.0)
+            title_budget.remaining -= 1
+            return classify_title(title, llm_complete=llm_complete, config=config)
         return _DEFER
+
     # ambiguous
     if len(outcome.candidates) == 1:
         return RouteDecision(resume_type=outcome.candidates[0], method="rules", confidence=_SINGLE_CANDIDATE_CONFIDENCE)
     if not description:
-        return _DEFER  # title-only ambiguity: defer until a JD arrives
+        if exhausted and title_budget is not None and title_budget.remaining > 0:
+            title_budget.remaining -= 1
+            return resolve_title_only(outcome.candidates, title, llm_complete=llm_complete, config=config)
+        return _DEFER  # not exhausted (or out of title budget): still waiting for a JD
     if budget.remaining <= 0:
-        return _DEFER  # per-run LLM cap reached
+        return _DEFER
     budget.remaining -= 1
     return resolve(outcome.candidates, title, description, llm_complete=llm_complete, config=config)
 
@@ -51,41 +76,56 @@ def route_new(conn: psycopg.Connection, *, config=None, llm_complete=None, max_l
     """
     cfg = config if config is not None else load_routing_config()
     do_llm = llm_complete if llm_complete is not None else llm_complete_default
-    cap = max_llm_calls if max_llm_calls is not None else cfg.get("thresholds", {}).get("max_llm_calls_per_run", 200)
+    thresholds = cfg.get("thresholds", {})
+    cap = max_llm_calls if max_llm_calls is not None else thresholds.get("max_llm_calls_per_run", 200)
+    title_after = thresholds.get("title_route_after", 3)
     budget = Budget(remaining=cap)
+    title_budget = Budget(remaining=thresholds.get("title_route_max_llm", 100))   # separate cap
 
     if reroute:
         where = "route_method is distinct from 'manual'"
     else:
-        where = "resume_type is null and route_method is distinct from 'manual'"
+        where = ("resume_type is null and route_method is distinct from 'manual' "
+                 "and route_method is distinct from 'not_target'")   # don't re-classify decided non-targets
 
-    rows = conn.execute(f"select id, title, description from jobs where {where}").fetchall()
-    counts = {"rules": 0, "llm": 0, "deferred": 0, "manual_skipped": 0}
-    updates: list[tuple] = []
+    rows = conn.execute(
+        f"select id, title, description, enrich_attempts from jobs where {where}"
+    ).fetchall()
+    counts = {"rules": 0, "llm": 0, "llm_title": 0, "not_target": 0, "deferred": 0, "manual_skipped": 0}
+    routed_updates: list[tuple] = []      # (resume_type, method, confidence, id) -> status='routed'
+    nontarget_updates: list[tuple] = []   # (id,) -> route_method='not_target' only
 
-    for job_id, title, description in rows:
+    for job_id, title, description, enrich_attempts in rows:
+        exhausted = (enrich_attempts or 0) >= title_after and not (description or "").strip()
         try:
-            decision = route_one(title, description, cfg, llm_complete=do_llm, budget=budget)
+            decision = route_one(title, description, cfg, llm_complete=do_llm, budget=budget,
+                                 exhausted=exhausted, title_budget=title_budget)
         except Exception as exc:  # noqa: BLE001 - one bad row never aborts the run
             logger.warning("route: job %s failed: %s", job_id, exc)
             counts["deferred"] += 1
             continue
         if decision.method is None:
             counts["deferred"] += 1
-            continue
-        updates.append((decision.resume_type, decision.method, decision.confidence, job_id))
-        counts[decision.method] += 1
+        elif decision.method == "not_target":
+            nontarget_updates.append((job_id,))
+            counts["not_target"] += 1
+        else:
+            routed_updates.append((decision.resume_type, decision.method, decision.confidence, job_id))
+            counts[decision.method] += 1
 
-    if updates:
+    if routed_updates or nontarget_updates:   # skip an empty transaction on a no-op run
         with conn.transaction(), conn.cursor() as cur:
-            cur.executemany(
-                "update jobs set resume_type=%s, route_method=%s, route_confidence=%s, status='routed' where id=%s",
-                updates,
-            )
+            if routed_updates:
+                cur.executemany(
+                    "update jobs set resume_type=%s, route_method=%s, route_confidence=%s, status='routed' where id=%s",
+                    routed_updates,
+                )
+            if nontarget_updates:
+                cur.executemany("update jobs set route_method='not_target' where id=%s", nontarget_updates)
     counts["manual_skipped"] = conn.execute(
         "select count(*) from jobs where route_method = 'manual'"
     ).fetchone()[0]
-    logger.info("route summary: %s (budget left=%d)", counts, budget.remaining)
+    logger.info("route summary: %s (budget left=%d, title left=%d)", counts, budget.remaining, title_budget.remaining)
     return counts
 
 

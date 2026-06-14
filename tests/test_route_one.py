@@ -77,3 +77,77 @@ def test_single_candidate_ambiguity_routes_without_llm():
     d = route_one("Summer Intern", "we have an api and also some api", _CONFIG_HIGH_THRESHOLD, llm_complete=_llm_never, budget=b)
     assert d.resume_type == "swe" and d.method == "rules"
     assert b.remaining == 5            # no LLM spent
+
+
+from jobmaxxing.routing.route import _looks_like_internship
+
+
+def test_looks_like_internship_true_cases():
+    for title in ("Software Engineering Intern", "ML Co-op", "Data Apprentice",
+                  "New Grad SWE", "Campus Analyst", "Student Researcher"):
+        assert _looks_like_internship(title) is True
+
+
+def test_looks_like_internship_false_cases():
+    for title in ("Senior Director, Finance", "Staff Software Engineer", None, ""):
+        assert _looks_like_internship(title) is False
+
+
+def _ambiguous_no_jd():
+    # "ai engineer ml engineer" matches BOTH ai and mle title_signals -> 2 candidates, no JD
+    return ("AI Engineer / ML Engineer Intern", None)
+
+
+def test_exhausted_ambiguous_no_jd_title_routes_via_llm_title():
+    title, desc = _ambiguous_no_jd()
+    tb = Budget(remaining=5)
+    jd_b = Budget(remaining=5)
+
+    def fake_llm(task, messages, **kw):
+        return '{"type": "ai", "confidence": 0.9}'
+
+    d = route_one(title, desc, CONFIG, llm_complete=fake_llm, budget=jd_b,
+                  exhausted=True, title_budget=tb)
+    assert d.method == "llm_title" and d.resume_type == "ai" and d.confidence == 0.4
+    assert tb.remaining == 4 and jd_b.remaining == 5        # spent the TITLE budget, not the JD budget
+
+
+def test_not_exhausted_ambiguous_no_jd_still_defers():
+    title, desc = _ambiguous_no_jd()
+    d = route_one(title, desc, CONFIG, llm_complete=_llm_never, budget=Budget(5),
+                  exhausted=False, title_budget=Budget(5))
+    assert d.method is None                                 # unchanged behavior when not exhausted
+
+
+def test_exhausted_but_no_title_budget_defers():
+    title, desc = _ambiguous_no_jd()
+    d = route_one(title, desc, CONFIG, llm_complete=_llm_never, budget=Budget(5),
+                  exhausted=True, title_budget=Budget(0))
+    assert d.method is None
+
+
+def test_exhausted_no_signal_internship_open_classifies():
+    # "Robotics Perception Intern" matches no title_signal in CONFIG (swe/ai/mle only) -> no_signal
+    def fake_llm(task, messages, **kw):
+        return '{"type": "ai", "confidence": 0.8}'
+    tb = Budget(remaining=2)
+    d = route_one("Robotics Perception Intern", None, CONFIG, llm_complete=fake_llm,
+                  budget=Budget(5), exhausted=True, title_budget=tb)
+    assert d.method == "llm_title" and tb.remaining == 1
+
+
+def test_exhausted_no_signal_non_internship_is_not_target_without_llm():
+    d = route_one("Senior Director of Finance", None, CONFIG, llm_complete=_llm_never,
+                  budget=Budget(5), exhausted=True, title_budget=Budget(2))
+    assert d.method == "not_target" and d.resume_type is None
+
+
+def test_has_jd_ambiguous_still_uses_normal_llm_path():
+    # regression: the JD-bearing path is unchanged (method='llm', spends the JD budget)
+    # "generic body" has no ai/mle jd_signals -> rules can't break the title tie -> LLM is called
+    def fake_llm(task, messages, **kw):
+        return '{"type": "mle", "confidence": 0.7}'
+    jd_b = Budget(remaining=5)
+    d = route_one("AI Engineer / ML Engineer Intern", "generic body", CONFIG,
+                  llm_complete=fake_llm, budget=jd_b, exhausted=True, title_budget=Budget(5))
+    assert d.method == "llm" and jd_b.remaining == 4
