@@ -102,15 +102,22 @@ def resolve_title_only(candidates: list[str], title, *, llm_complete, config) ->
     return RouteDecision(resume_type=resume_type, method="llm_title", confidence=min(conf, _TITLE_ROUTE_CONFIDENCE))
 
 
+def _classify_choices(config) -> list[str]:
+    """Open-classify candidate set: configured target types (canonical order) + 'none'. Single
+    source so build_classify_messages' prompt and classify_title's parser never diverge."""
+    return [t for t in VALID_TYPES if t in config.get("types", {})] + ["none"]
+
+
 def build_classify_messages(title, config) -> list[dict]:
     """Open classification prompt: pick one of the configured types, or 'none' (not a target role)."""
-    types_in_config = [t for t in VALID_TYPES if t in config.get("types", {})]
+    choices = _classify_choices(config)
+    types_in_config = [c for c in choices if c != "none"]
     defs = "\n".join(f"- {t}: {config['types'][t].get('definition', '')}" for t in types_in_config)
-    allowed = ", ".join(types_in_config)
+    allowed = ", ".join(choices)   # includes 'none'; mirrors the parser's allowed set exactly
     system = (
         "You assign an internship posting to exactly one resume type, or 'none' if it fits none.\n"
         f"Types:\n{defs}\n\n"
-        f'Respond with STRICT JSON only: {{"type": <one of: {allowed}, none>, "confidence": <0.0-1.0>}}. '
+        f'Respond with STRICT JSON only: {{"type": <one of: {allowed}>, "confidence": <0.0-1.0>}}. '
         "No prose, no code fences."
     )
     user = f"Internship title (no job description available): {title}"
@@ -120,12 +127,11 @@ def build_classify_messages(title, config) -> list[dict]:
 def classify_title(title, *, llm_complete, config) -> RouteDecision:
     """Open-classify a title -> method='llm_title' (a type) | 'not_target' ('none') | defer (LLM error)."""
     messages = build_classify_messages(title, config)
-    types_in_config = [t for t in VALID_TYPES if t in config.get("types", {})]
     try:
         text = llm_complete("route", messages, max_tokens=200, response_format={"type": "json_object"})
     except LLMUnavailable:
         return RouteDecision(resume_type=None, method=None, confidence=0.0)
-    parsed = parse_tiebreaker_response(text, types_in_config + ["none"])
+    parsed = parse_tiebreaker_response(text, _classify_choices(config))
     if parsed is None:
         return RouteDecision(resume_type=None, method=None, confidence=0.0)
     t, conf = parsed

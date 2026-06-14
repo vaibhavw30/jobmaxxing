@@ -36,7 +36,8 @@ def route_one(
 ) -> RouteDecision:
     """Route a single posting. Title-first deterministic; the LLM resolves ambiguous JD-bearing
     rows. When `exhausted` (enrichment gave up, no JD) and a `title_budget` remains, route on the
-    title alone instead of deferring forever."""
+    title alone instead of deferring forever — tiebreaking among rule candidates, or open-classifying
+    a no-signal title (which a non-internship title short-circuits to `not_target` with no LLM call)."""
     outcome = route_by_rules(title, description, config)
     if outcome.decision == "routed":
         return RouteDecision(resume_type=outcome.resume_type, method="rules", confidence=outcome.confidence)
@@ -112,14 +113,15 @@ def route_new(conn: psycopg.Connection, *, config=None, llm_complete=None, max_l
             routed_updates.append((decision.resume_type, decision.method, decision.confidence, job_id))
             counts[decision.method] += 1
 
-    with conn.transaction(), conn.cursor() as cur:
-        if routed_updates:
-            cur.executemany(
-                "update jobs set resume_type=%s, route_method=%s, route_confidence=%s, status='routed' where id=%s",
-                routed_updates,
-            )
-        if nontarget_updates:
-            cur.executemany("update jobs set route_method='not_target' where id=%s", nontarget_updates)
+    if routed_updates or nontarget_updates:   # skip an empty transaction on a no-op run
+        with conn.transaction(), conn.cursor() as cur:
+            if routed_updates:
+                cur.executemany(
+                    "update jobs set resume_type=%s, route_method=%s, route_confidence=%s, status='routed' where id=%s",
+                    routed_updates,
+                )
+            if nontarget_updates:
+                cur.executemany("update jobs set route_method='not_target' where id=%s", nontarget_updates)
     counts["manual_skipped"] = conn.execute(
         "select count(*) from jobs where route_method = 'manual'"
     ).fetchone()[0]
