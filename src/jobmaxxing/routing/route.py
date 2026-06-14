@@ -7,7 +7,7 @@ from ..config import load_settings
 from ..llm.client import complete as llm_complete_default
 from .config import load_routing_config
 from .rules import route_by_rules
-from .tiebreaker import resolve
+from .tiebreaker import classify_title, resolve, resolve_title_only
 from .types import VALID_TYPES, Budget, RouteDecision
 
 logger = logging.getLogger(__name__)
@@ -31,22 +31,34 @@ def _looks_like_internship(title: str | None) -> bool:
 
 
 def route_one(
-    title: str | None, description: str | None, config: dict, *, llm_complete, budget: Budget
+    title: str | None, description: str | None, config: dict, *, llm_complete, budget: Budget,
+    exhausted: bool = False, title_budget: Budget | None = None,
 ) -> RouteDecision:
-    """Route a single posting. Title-first deterministic; the LLM is used only for
-    ambiguous JD-bearing rows with >1 candidate, within budget; otherwise defer."""
+    """Route a single posting. Title-first deterministic; the LLM resolves ambiguous JD-bearing
+    rows. When `exhausted` (enrichment gave up, no JD) and a `title_budget` remains, route on the
+    title alone instead of deferring forever."""
     outcome = route_by_rules(title, description, config)
     if outcome.decision == "routed":
         return RouteDecision(resume_type=outcome.resume_type, method="rules", confidence=outcome.confidence)
+
     if outcome.decision == "no_signal":
+        if exhausted and title_budget is not None and title_budget.remaining > 0:
+            if not _looks_like_internship(title):
+                return RouteDecision(resume_type=None, method="not_target", confidence=0.0)
+            title_budget.remaining -= 1
+            return classify_title(title, llm_complete=llm_complete, config=config)
         return _DEFER
+
     # ambiguous
     if len(outcome.candidates) == 1:
         return RouteDecision(resume_type=outcome.candidates[0], method="rules", confidence=_SINGLE_CANDIDATE_CONFIDENCE)
     if not description:
-        return _DEFER  # title-only ambiguity: defer until a JD arrives
+        if exhausted and title_budget is not None and title_budget.remaining > 0:
+            title_budget.remaining -= 1
+            return resolve_title_only(outcome.candidates, title, llm_complete=llm_complete, config=config)
+        return _DEFER  # not exhausted (or out of title budget): still waiting for a JD
     if budget.remaining <= 0:
-        return _DEFER  # per-run LLM cap reached
+        return _DEFER
     budget.remaining -= 1
     return resolve(outcome.candidates, title, description, llm_complete=llm_complete, config=config)
 

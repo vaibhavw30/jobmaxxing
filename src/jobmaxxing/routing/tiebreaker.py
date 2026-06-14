@@ -103,9 +103,10 @@ def resolve_title_only(candidates: list[str], title, *, llm_complete, config) ->
 
 
 def build_classify_messages(title, config) -> list[dict]:
-    """Open classification prompt: pick one of the 8 types, or 'none' (not a target role)."""
-    defs = "\n".join(f"- {t}: {config['types'][t].get('definition', '')}" for t in VALID_TYPES)
-    allowed = ", ".join(VALID_TYPES)
+    """Open classification prompt: pick one of the configured types, or 'none' (not a target role)."""
+    types_in_config = [t for t in VALID_TYPES if t in config.get("types", {})]
+    defs = "\n".join(f"- {t}: {config['types'][t].get('definition', '')}" for t in types_in_config)
+    allowed = ", ".join(types_in_config)
     system = (
         "You assign an internship posting to exactly one resume type, or 'none' if it fits none.\n"
         f"Types:\n{defs}\n\n"
@@ -119,11 +120,12 @@ def build_classify_messages(title, config) -> list[dict]:
 def classify_title(title, *, llm_complete, config) -> RouteDecision:
     """Open-classify a title -> method='llm_title' (a type) | 'not_target' ('none') | defer (LLM error)."""
     messages = build_classify_messages(title, config)
+    types_in_config = [t for t in VALID_TYPES if t in config.get("types", {})]
     try:
         text = llm_complete("route", messages, max_tokens=200, response_format={"type": "json_object"})
     except LLMUnavailable:
         return RouteDecision(resume_type=None, method=None, confidence=0.0)
-    parsed = parse_tiebreaker_response(text, list(VALID_TYPES) + ["none"])
+    parsed = parse_tiebreaker_response(text, types_in_config + ["none"])
     if parsed is None:
         return RouteDecision(resume_type=None, method=None, confidence=0.0)
     t, conf = parsed
