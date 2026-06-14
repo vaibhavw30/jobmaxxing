@@ -122,3 +122,9 @@ def test_workday_enriched_description_survives_reingest(conn):
     after = conn.execute("select description, enriched_at from jobs where dedupe_key='wd|keep'").fetchone()
     assert after[0] == before[0]      # description preserved
     assert after[1] == before[1]      # enriched_at untouched
+
+
+def test_cli_shim_exposes_main():
+    import jobmaxxing.enrich_workday as cli
+    from jobmaxxing.enrichment.workday import main
+    assert cli.main is main
