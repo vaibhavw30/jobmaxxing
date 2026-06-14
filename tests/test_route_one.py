@@ -77,3 +77,17 @@ def test_single_candidate_ambiguity_routes_without_llm():
     d = route_one("Summer Intern", "we have an api and also some api", _CONFIG_HIGH_THRESHOLD, llm_complete=_llm_never, budget=b)
     assert d.resume_type == "swe" and d.method == "rules"
     assert b.remaining == 5            # no LLM spent
+
+
+from jobmaxxing.routing.route import _looks_like_internship
+
+
+def test_looks_like_internship_true_cases():
+    for title in ("Software Engineering Intern", "ML Co-op", "Data Apprentice",
+                  "New Grad SWE", "Campus Analyst", "Student Researcher"):
+        assert _looks_like_internship(title) is True
+
+
+def test_looks_like_internship_false_cases():
+    for title in ("Senior Director, Finance", "Staff Software Engineer", None, ""):
+        assert _looks_like_internship(title) is False

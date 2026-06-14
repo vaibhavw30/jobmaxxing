@@ -17,6 +17,18 @@ _DEFER = RouteDecision(resume_type=None, method=None, confidence=0.0)
 # disambiguate), with modest confidence.
 _SINGLE_CANDIDATE_CONFIDENCE = 0.5
 
+_INTERNSHIP_MARKERS = (
+    "intern", "co-op", "coop", "co op", "student", "apprentic", "new grad",
+    "early career", "university", "campus", "trainee",
+)
+
+
+def _looks_like_internship(title: str | None) -> bool:
+    """Coarse gate: does the title look like an internship/early-career role? Used to skip
+    open-classification (and its LLM call) on obvious non-targets."""
+    t = (title or "").lower()
+    return any(m in t for m in _INTERNSHIP_MARKERS)
+
 
 def route_one(
     title: str | None, description: str | None, config: dict, *, llm_complete, budget: Budget
