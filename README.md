@@ -95,9 +95,11 @@ feedback. **Operator-gated and run locally** — never automatic (cost control).
 The local tailoring step (`python -m jobmaxxing.tailor`) prefers the `claude-cli` provider —
 it shells to `claude -p` on your **Claude subscription** instead of spending API tokens. Make
 sure the `claude` CLI is installed and **logged in to your subscription** (`claude` then `/login`).
-The adapter strips `ANTHROPIC_API_KEY` from the call so it can't accidentally bill the API; if
-the CLI is absent (e.g. CI) or errors, the pipeline automatically falls back to the API. Routing
-stays on the cheap API model. Optional check: `JOBMAXXING_E2E=1 uv run pytest tests/test_llm_claude_cli_e2e.py -v`.
+The adapter strips the API-billing credentials (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`) from
+the call so it can't accidentally bill the API, and runs the CLI tool-restricted (no Bash/Write/
+Edit) so injected JD text can't drive it. If the CLI is absent (e.g. CI) or errors, the pipeline
+automatically falls back to the API. Routing stays on the cheap API model. Optional check:
+`JOBMAXXING_E2E=1 uv run pytest tests/test_llm_claude_cli_e2e.py -v`.
 
 Setup:
 - Install a LaTeX distribution providing `pdflatex` (e.g. MacTeX/TeX Live).

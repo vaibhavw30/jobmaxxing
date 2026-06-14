@@ -139,6 +139,8 @@ class _FakeProc:
 
 def test_claude_cli_happy_path_and_env_strips_api_key(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-should-not-leak")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "bearer-should-not-leak")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "subscription-keep-me")
     monkeypatch.setenv("PATH", "/usr/bin")
     captured = {}
 
@@ -151,15 +153,32 @@ def test_claude_cli_happy_path_and_env_strips_api_key(monkeypatch):
     messages = [{"role": "system", "content": "SYS"}, {"role": "user", "content": "USR"}]
     out = providers.call_provider("claude-cli", "sonnet", messages, max_tokens=4000, cache="BASE")
     assert out == "RESULT TEXT"
-    # command: model + tools-off + system flag
-    assert captured["cmd"][:5] == ["claude", "-p", "--model", "sonnet", "--allowedTools"]
+    # command: model + restrictive single-tool allowlist + system flag
+    assert captured["cmd"][:4] == ["claude", "-p", "--model", "sonnet"]
+    assert captured["cmd"][captured["cmd"].index("--allowedTools") + 1] == "Glob"   # non-empty allowlist
     assert "--system-prompt" in captured["cmd"]
     assert captured["cmd"][captured["cmd"].index("--system-prompt") + 1] == "SYS"
     # stdin prompt = cache then user message
     assert captured["kwargs"]["input"] == "BASE\n\nUSR"
-    # THE GUARANTEE: the child env has no ANTHROPIC_API_KEY (forces subscription auth)
+    # THE GUARANTEE: both API-billing creds stripped (forces subscription auth)...
     assert "ANTHROPIC_API_KEY" not in captured["kwargs"]["env"]
-    assert captured["kwargs"]["env"]["PATH"] == "/usr/bin"   # other env preserved
+    assert "ANTHROPIC_AUTH_TOKEN" not in captured["kwargs"]["env"]
+    # ...but the subscription OAuth token and other env are preserved
+    assert captured["kwargs"]["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == "subscription-keep-me"
+    assert captured["kwargs"]["env"]["PATH"] == "/usr/bin"
+
+
+def test_claude_cli_strips_markdown_code_fence(monkeypatch):
+    fenced = "```latex\n\\documentclass{article}\n\\end{document}\n```"
+    monkeypatch.setattr(providers.subprocess, "run",
+                        lambda cmd, **kw: _FakeProc(returncode=0, stdout=fenced))
+    out = providers.call_provider("claude-cli", "sonnet", [{"role": "user", "content": "x"}], max_tokens=10)
+    assert out == "\\documentclass{article}\n\\end{document}"   # fence removed
+    # bare (unfenced) output is returned unchanged
+    monkeypatch.setattr(providers.subprocess, "run",
+                        lambda cmd, **kw: _FakeProc(returncode=0, stdout="\\documentclass{article}"))
+    assert providers.call_provider("claude-cli", "sonnet", [{"role": "user", "content": "x"}],
+                                   max_tokens=10) == "\\documentclass{article}"
 
 
 def test_claude_cli_omits_system_flag_when_no_system(monkeypatch):
