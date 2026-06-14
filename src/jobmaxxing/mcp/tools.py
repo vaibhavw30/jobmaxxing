@@ -16,6 +16,7 @@ VALID_STATUSES = {
     "new", "routed", "approved_for_tailoring", "tailored", "reviewed", "applied", "rejected",
 }
 _QUERY_COLS = ["id", "company", "title", "status", "resume_type", "route_confidence", "url", "posted_at"]
+_QUEUE_COLS = ["id", "company", "title", "url", "resume_type", "route_confidence", "scraped_at"]
 
 
 def _json_safe(value):
@@ -23,6 +24,16 @@ def _json_safe(value):
     if isinstance(value, (uuid.UUID, datetime)):
         return str(value)
     return value
+
+
+def nightly_queue(conn, *, limit=50) -> list[dict]:
+    """The operator's manual-capture worklist: relevant, still-JD-less jobs both the headless
+    worker and find-elsewhere gave up on (from the nightly_queue view). limit hard-capped at 200."""
+    capped = max(1, min(int(limit), 200))
+    rows = conn.execute(
+        f"select {', '.join(_QUEUE_COLS)} from nightly_queue limit %s", (capped,)
+    ).fetchall()
+    return [{c: _json_safe(v) for c, v in zip(_QUEUE_COLS, row)} for row in rows]
 
 
 def query_jobs(conn, *, status=None, resume_type=None, company=None,
