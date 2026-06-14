@@ -1,3 +1,6 @@
+import threading
+import time
+
 import httpx
 import psycopg
 import pytest
@@ -297,6 +300,69 @@ def test_enrich_new_mixed_ats_only_board_scoped_is_cached(conn):
     assert counts["enriched"] == 4
     assert [c for c in calls if "ashbyhq" in c] == [_ASHBY_BOARD_URL]   # cached: one fetch for 3 postings
     assert len([c for c in calls if "greenhouse" in c]) == 1            # per-job: direct, not cached
+
+
+def test_enrich_new_ashby_single_flight_under_forced_overlap(conn):
+    # Stronger than `calls == [url]` (which passes even if the pool happened to run the
+    # tasks serially): hold the one in-flight board fetch open while the sibling same-org
+    # tasks are scheduled, then assert only ONE thread ever entered the fetcher. If the
+    # per-key lock regressed, all three would enter concurrently and the snapshot would be 3.
+    _insert_ashby_org(conn)  # three same-org postings
+    board = {"jobs": [
+        {"id": u, "descriptionPlain": f"ashby {u} with enough words"} for u in _ASHBY_UUIDS
+    ]}
+    entries: list[str] = []
+    entries_lock = threading.Lock()
+    first_entered = threading.Event()
+    proceed = threading.Event()
+
+    def blocking_fetch(api_url):
+        with entries_lock:
+            entries.append(api_url)
+        first_entered.set()
+        proceed.wait(timeout=5)  # hold the fetch open so siblings must contend on the key lock
+        return board
+
+    snapshot = {}
+
+    def releaser():
+        first_entered.wait(timeout=5)  # one task is now inside the fetcher, holding the key lock
+        time.sleep(0.2)                # let the other two same-org tasks reach & block on that lock
+        with entries_lock:
+            snapshot["count"] = len(entries)
+        proceed.set()
+
+    watcher = threading.Thread(target=releaser)
+    watcher.start()
+    counts = enrich_new(conn, fetch_json=blocking_fetch)
+    watcher.join()
+
+    assert counts["enriched"] == 3
+    assert snapshot["count"] == 1     # single-flight: exactly one thread inside the fetcher under overlap
+    assert entries == [_ASHBY_BOARD_URL]
+
+
+def test_enrich_new_distinct_orgs_fetch_in_parallel(conn):
+    # Guards against someone widening the per-key lock into a global lock. Each org's
+    # fetcher must rendezvous at a 2-party barrier: if the two orgs run in parallel (per-key
+    # locks) both arrive and the barrier releases; if they were serialized, the first holds
+    # its lock waiting at the barrier while the second can never start -> BrokenBarrierError.
+    _insert(conn, dedupe_key="acme0", url="https://jobs.ashbyhq.com/acme/" + _ASHBY_UUIDS[0])
+    _insert(conn, dedupe_key="globex0", url="https://jobs.ashbyhq.com/globex/" + _ASHBY_UUIDS[1])
+    boards = {
+        _ashby_board_url("acme"): {"jobs": [
+            {"id": _ASHBY_UUIDS[0], "descriptionPlain": "acme role with enough words"}]},
+        _ashby_board_url("globex"): {"jobs": [
+            {"id": _ASHBY_UUIDS[1], "descriptionPlain": "globex role with enough words"}]},
+    }
+    barrier = threading.Barrier(2, timeout=5)
+
+    def rendezvous_fetch(api_url):
+        barrier.wait()  # both orgs must be in-flight simultaneously, or this raises BrokenBarrierError
+        return boards[api_url]
+
+    counts = enrich_new(conn, fetch_json=rendezvous_fetch)
+    assert counts == {"enriched": 2, "permanent_failed": 0, "transient_failed": 0, "candidates": 2}
 
 
 # ---------------------------------------------------------------------------
