@@ -85,3 +85,11 @@ def sync_sheet(conn, client: SheetClient) -> dict:
               **{f"pulled_{k}": v for k, v in pulled.items()}}
     logger.info("sheet sync: %s", counts)
     return counts
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    from .client import GspreadClient
+    settings = load_settings()
+    with psycopg.connect(settings.database_url) as conn:
+        print(f"sheet sync: {sync_sheet(conn, GspreadClient())}")

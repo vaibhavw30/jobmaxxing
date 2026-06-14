@@ -111,6 +111,15 @@ def reject_recovered(job_id: str) -> dict:
         return tools.reject_recovered(conn, job_id)
 
 
+@mcp.tool()
+def sync_sheet() -> dict:
+    """Sync the Google decision sheet both ways: apply your interested/applied marks to the funnel,
+    then refresh the sheet with the latest routed jobs. Returns the counts."""
+    from ..sheets.client import GspreadClient
+    with _conn() as conn:
+        return tools.sync_sheet(conn, client=GspreadClient())
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     mcp.run()

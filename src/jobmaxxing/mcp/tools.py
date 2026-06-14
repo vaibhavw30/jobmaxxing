@@ -159,3 +159,9 @@ def get_review(store, job_id) -> dict:
     review = json.loads(store.get_artifact(job_id, "review.json").decode("utf-8"))
     diff = store.get_artifact(job_id, "diff.txt").decode("utf-8")
     return {"review": review, "diff": diff}
+
+
+def sync_sheet(conn, *, client) -> dict:
+    """Run the two-way Google Sheets sync (pull decisions -> funnel, push routed jobs -> sheet)."""
+    from ..sheets.sync import sync_sheet as _sync
+    return _sync(conn, client)

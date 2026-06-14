@@ -182,6 +182,19 @@ req-id/back-link match or an LLM-confirmed fuzzy match, writes it with `jd_sourc
 (flagged for review), and resets routing so the next poll re-routes it with the real JD.
 Optional live check: `JOBMAXXING_E2E=1 uv run pytest tests/test_recover_e2e.py -v`.
 
+### Job decision sheet (Google Sheets, two-way)
+
+Triage routed jobs in a spreadsheet instead of one MCP call at a time. One-time setup:
+
+1. Create a Google Cloud service account, enable the Google Sheets API, download its JSON key.
+2. Create a Google Sheet, share it (Editor) with the service account's email.
+3. Set `GSHEET_ID` and `GOOGLE_SERVICE_ACCOUNT_FILE` in `.env`; `uv sync --extra sheets`.
+
+Then sync (locally, or the `sync_sheet` MCP tool): `uv run --extra sheets python -m jobmaxxing.sync_sheet`.
+It pushes routed jobs (company, title, JD, status, …) into the sheet and pulls your decision columns
+back into the funnel: **interested = Yes** → queued for tailoring, **No** → rejected, **applied** → applied.
+Mark jobs in the sheet, re-run the sync, then your local `tailor` run picks up the interested ones.
+
 ## Status & open items
 
 Phases 1–4 are built: core feed (ingestion), routing, tailoring, and the MCP

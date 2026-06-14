@@ -135,3 +135,21 @@ def test_sync_is_idempotent(conn):
     fake.appended.clear(); fake.updates.clear()
     counts = sync_sheet(conn, fake)
     assert counts["appended"] == 0 and fake.updates == []        # nothing changed
+
+
+# ---------------------------------------------------------------------------
+# Task 5 — CLI shim + MCP tool delegation
+# ---------------------------------------------------------------------------
+
+def test_cli_shim_exposes_main():
+    import jobmaxxing.sync_sheet as cli
+    from jobmaxxing.sheets.sync import main
+    assert cli.main is main
+
+
+def test_mcp_sync_sheet_tool_delegates(conn):
+    from jobmaxxing.mcp.tools import sync_sheet as tool_sync
+    _insert(conn, dedupe_key="m|1")
+    fake = FakeSheet()
+    counts = tool_sync(conn, client=fake)
+    assert counts["appended"] == 1
