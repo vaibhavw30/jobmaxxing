@@ -1,13 +1,15 @@
 # task -> ordered (provider, model) candidates. The wrapper tries each in order,
 # skipping a provider whose API key env var is unset, and falling through on error.
 tasks:
+  # Use dated model ids, not -latest aliases: Anthropic 404s a model once it
+  # reaches end-of-life, and -latest can resolve to a retired snapshot.
   route:
-    - {provider: anthropic, model: claude-3-5-haiku-latest}   # primary: light + the only key set right now
-    - {provider: openai, model: gpt-4o-mini}                  # fallbacks (skipped while their keys are unset)
+    - {provider: anthropic, model: claude-haiku-4-5-20251001}  # primary: light + the only key set right now
+    - {provider: openai, model: gpt-4o-mini}                   # fallbacks (skipped while their keys are unset)
     - {provider: xai, model: grok-3-mini}
   tailor:
-    - {provider: anthropic, model: claude-sonnet-4-latest}
+    - {provider: anthropic, model: claude-sonnet-4-5-20250929}
     - {provider: openai, model: gpt-4o}
   review:
-    - {provider: anthropic, model: claude-sonnet-4-latest}
+    - {provider: anthropic, model: claude-sonnet-4-5-20250929}
     - {provider: openai, model: gpt-4o}
