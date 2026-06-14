@@ -31,6 +31,11 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: uv run python -m jobmaxxing.run
 
+      - name: Enrich descriptions
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: uv run python -m jobmaxxing.enrich
+
       - name: Route new postings
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
