@@ -73,7 +73,9 @@ def _recover_one(job_id, company, title, url, *, searcher, fetcher, llm_confirm)
 
 def recover_new(conn, *, max_jobs=100, max_workers=3, cap=2,
                 searcher=ddg_search, fetcher=_default_fetcher, llm_confirm=_default_llm_confirm) -> dict:
-    """Recover JDs for relevant, JD-less Workday rows. Returns {recovered, missed, candidates}."""
+    """Recover JDs for relevant, JD-less Workday rows. Returns {recovered, missed, candidates}.
+
+    `cap` is the max `recover_attempts` before a job is no longer selected (give-up bound)."""
     rows = conn.execute(
         "select id, company, title, url from jobs "
         "where coalesce(description,'')='' "
