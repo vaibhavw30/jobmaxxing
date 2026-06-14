@@ -124,6 +124,30 @@ Drive the whole pipeline from Claude Code via an MCP server — no dashboard.
 - Funnel at a glance (Supabase SQL editor): `select * from funnel_counts;` and
   `select * from review_queue;`.
 
+## Workday enrichment (local, operator-run)
+
+Workday job pages are Cloudflare-gated, so their descriptions are fetched by a **local**
+headless-browser worker (kept out of CI). One-time setup:
+
+    uv sync --extra headless
+    uv run playwright install chromium
+
+Then enrich description-less Workday rows (residential IP recommended — Cloudflare is
+gentler on home IPs than datacenter ones):
+
+    uv run python -m jobmaxxing.enrich_workday
+
+It selects Workday rows still missing a description, fetches each via a tiered strategy
+(plain cxs JSON → headless-cleared-context → headless render+intercept), and writes
+descriptions back to the same database the CI pipeline uses. It is bounded (`max_jobs`
+per run) and resumable — re-run it to drain the backlog. Blocked tenants are retried up
+to a cap, then left alone.
+
+To measure real-world yield or to run the live end-to-end test:
+
+    uv run --extra headless python scripts/spike_workday.py 30
+    JOBMAXXING_E2E=1 uv run --extra headless pytest tests/test_workday_e2e.py -v
+
 ## Status & open items
 
 Phases 1–4 are built: core feed (ingestion), routing, tailoring, and the MCP
