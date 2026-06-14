@@ -33,5 +33,8 @@ Whatever's relevant but *still* has no JD after #2 lands in a queue the operator
 - **Where:** builds on the Phase-4 MCP + the funnel/review views. Needs a "relevant + no-JD + exhausted" queue query and a low-friction JD-capture path (paste, or a browser helper in the operator's authenticated session).
 - **Human stays the gate** — consistent with the no-autonomous-submission rule.
 
+## Reset contract (sub-projects 2 & 3 MUST honor)
+When sub-project 2 or 3 writes a real JD (`description`) to a job that sub-project 1 had title-routed (`route_method='llm_title'`) or marked `not_target`, it MUST also **reset `resume_type=NULL, route_method=NULL`** on that row, so the next `route_new` re-routes it from scratch with the full JD (a confident `rules`/`llm` decision replacing the provisional title-only one). See `2026-06-14-title-triage-design.md` §6.
+
 ## Dependencies & sequencing
 1 (relevance) → 2 (auto-recover, prioritized by relevance) → 3 (human fallback for what 2 can't get). Each is independently shippable and testable. Build 1 now; revisit this roadmap for 2 and 3.
