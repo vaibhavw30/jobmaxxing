@@ -13,6 +13,8 @@ import psycopg
 from ..config import load_settings
 from .enrich import Outcome, _apply_outcomes
 
+logger = logging.getLogger(__name__)
+
 # https://{tenant}.{wd}.myworkdayjobs.com/[xx-XX/]{site}/job/{rest}
 _WORKDAY_RE = re.compile(
     r"https://(?P<tenant>[^.]+)\.(?P<wd>wd\d+)\.myworkdayjobs\.com/"
@@ -106,10 +108,9 @@ def fetch_workday_one(job_id, url: str, fetcher: WorkdayFetcher) -> Outcome:
             return Outcome(job_id, "transient", None, str(exc))
         except WorkdayBlocked:
             continue
+        except Exception as exc:  # noqa: BLE001 - a buggy/crashing fetcher must never crash the shard
+            return Outcome(job_id, "transient", None, f"{type(exc).__name__}: {exc}"[:500])
     return Outcome(job_id, "transient", None, "blocked at all tiers (cloudflare unsolved)")
-
-
-logger = logging.getLogger(__name__)
 
 
 def _default_fetcher_factory():
@@ -138,6 +139,8 @@ def enrich_workday(conn, *, max_jobs=300, max_workers=3, cap=3, fetcher_factory=
 
     shards: dict[str, list] = {}
     for job_id, url in rows:
+        # workday_host always matches after the SQL `url ~* myworkdayjobs` filter; "" is a
+        # defensive fallback that groups any hypothetical non-match into one shard.
         shards.setdefault(workday_host(url) or "", []).append((job_id, url))
 
     def run_shard(jobs):

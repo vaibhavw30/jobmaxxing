@@ -158,3 +158,13 @@ def test_unrecognized_url_is_permanent_without_fetching():
     out = fetch_workday_one("j1", "https://x.greenhouse.io/y", f)
     assert out.kind == "permanent"
     assert f.calls == []
+
+
+def test_unexpected_fetcher_error_is_transient_not_crash():
+    # A buggy/crashing fetcher raising a non-Workday exception must be isolated to a
+    # transient outcome, never propagate and crash the whole shard.
+    f = FakeFetcher(plain=ValueError("buggy fetcher"))
+    out = fetch_workday_one("j1", _URL, f)
+    assert out.kind == "transient"
+    assert "ValueError" in out.error
+    assert f.calls == ["plain"]
