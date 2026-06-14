@@ -63,12 +63,14 @@ class AshbyAdapter:
 
     @classmethod
     def api_url(cls, url: str) -> str:
-        org = cls._RE.search(url).group(1)
+        m = cls._RE.search(url)
+        org = m.group(1)
         return f"https://api.ashbyhq.com/posting-api/job-board/{org}?includeCompensation=true"
 
     @classmethod
     def parse(cls, payload: dict, url: str) -> str | None:
-        posting_id = cls._RE.search(url).group(2)
+        m = cls._RE.search(url)
+        posting_id = m.group(2)
         for posting in payload.get("jobs", []):
             if posting.get("id") == posting_id:
                 return posting.get("descriptionPlain") or None

@@ -22,6 +22,15 @@ def test_greenhouse_parse_returns_none_when_no_content():
     assert GreenhouseAdapter.parse({}, "https://job-boards.greenhouse.io/x/jobs/1") is None
 
 
+def test_greenhouse_matches_classic_host():
+    url = "https://boards.greenhouse.io/acme/jobs/123"
+    a = adapter_for(url)
+    assert a is GreenhouseAdapter
+    assert a.api_url(url) == (
+        "https://boards-api.greenhouse.io/v1/boards/acme/jobs/123?content=true"
+    )
+
+
 def test_unsupported_host_has_no_adapter():
     assert adapter_for("https://comcast.wd5.myworkdayjobs.com/en-US/x/job/y/z_R1") is None
 
