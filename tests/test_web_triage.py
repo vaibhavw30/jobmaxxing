@@ -224,3 +224,22 @@ def test_reset_guard_blocks_tailored(conn):
     # no exception — benign no-op
     row = conn.execute("select status from jobs where id=%s", (uuid.UUID(jid),)).fetchone()
     assert row[0] == "tailored"
+
+
+# ---------------------------------------------------------------------------
+# fetch_triage_rows — statuses= (IN filter) tests
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_filters_by_statuses_in(conn):
+    """statuses=(...) returns only matching statuses; excluded ones are absent."""
+    a_new = _insert(conn, dedupe_key="si|new", status="new")
+    b_routed = _insert(conn, dedupe_key="si|routed", status="routed")
+    c_applied = _insert(conn, dedupe_key="si|applied", status="applied", resume_type="swe")
+
+    rows = fetch_triage_rows(conn, statuses=("new", "routed"))
+    ids = {str(r["id"]) for r in rows}
+
+    assert a_new in ids
+    assert b_routed in ids
+    assert c_applied not in ids

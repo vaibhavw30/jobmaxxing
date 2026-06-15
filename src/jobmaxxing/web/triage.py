@@ -12,16 +12,24 @@ _TRIAGE_COLS = TRIAGE_COLUMNS
 _MAX_LIMIT = 200
 
 
-def fetch_triage_rows(conn, *, status=None, resume_type=None, limit=200) -> list[dict]:
+def fetch_triage_rows(conn, *, status=None, statuses=None, resume_type=None, limit=200) -> list[dict]:
     """Return routed jobs (resume_type IS NOT NULL) as a list of column-keyed dicts.
 
-    Optional filters: status=, resume_type=.  Hard-capped at 200 rows.
-    description is returned as plain text (HTML stripped).
+    Optional filters:
+      status=      — single status string equality filter.
+      statuses=    — iterable of status strings; filters status IN (...).
+                     When both status= and statuses= are given, statuses= takes precedence.
+    Hard-capped at 200 rows.  description is returned as plain text (HTML stripped).
     """
     clauses = ["resume_type is not null"]
     params: list = []
 
-    if status is not None:
+    statuses_list = list(statuses) if statuses is not None else None
+    if statuses_list:
+        placeholders = ", ".join(["%s"] * len(statuses_list))
+        clauses.append(f"status in ({placeholders})")
+        params.extend(statuses_list)
+    elif status is not None:
         clauses.append("status = %s")
         params.append(status)
     if resume_type is not None:
