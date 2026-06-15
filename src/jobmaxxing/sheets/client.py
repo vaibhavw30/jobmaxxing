@@ -18,20 +18,28 @@ _SHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
 
 class GspreadClient:
     """Real SheetClient over gspread. Lazily imports gspread so the package imports without the
-    'sheets' extra. Auth (GSHEET_ID required either way):
-      - GOOGLE_SERVICE_ACCOUNT_FILE set -> service-account key (share the sheet with its email); else
-      - Application Default Credentials -> authenticates as YOU; no key, no sharing. Run once:
-        `gcloud auth application-default login --scopes=<spreadsheets>,<drive>`.
-    ADC is the default because Google's 'Secure by Default' org policy often blocks service-account
-    key creation on new projects."""
+    'sheets' extra. Auth (GSHEET_ID required in every case), in precedence order:
+      1. GOOGLE_OAUTH_CLIENT_FILE -> your OWN OAuth client (gspread.oauth): a one-time browser
+         consent ("Google hasn't verified this app -> Continue"), then a token is cached. This is
+         the recommended path on personal accounts -- it sidesteps both the org-policy block on
+         service-account keys AND Google's deprecation of the shared gcloud client for these scopes.
+      2. GOOGLE_SERVICE_ACCOUNT_FILE -> service-account key (share the sheet with its email).
+      3. neither set -> Application Default Credentials (`gcloud auth application-default login`).
+    """
 
     def __init__(self):
         import gspread
         sheet_id = os.environ.get("GSHEET_ID")
         if not sheet_id:
             raise RuntimeError("GSHEET_ID must be set (see .env.example)")
+        oauth_client = os.environ.get("GOOGLE_OAUTH_CLIENT_FILE")
         key_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE")
-        if key_path:
+        if oauth_client:
+            token_path = os.environ.get("GOOGLE_OAUTH_TOKEN_FILE") or os.path.join(
+                os.path.dirname(oauth_client) or ".", "authorized_user.json")
+            gc = gspread.oauth(scopes=_SHEETS_SCOPES, credentials_filename=oauth_client,
+                               authorized_user_filename=token_path)
+        elif key_path:
             gc = gspread.service_account(filename=key_path)
         else:
             import google.auth                                    # Application Default Credentials (you)

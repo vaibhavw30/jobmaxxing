@@ -4,6 +4,11 @@ __pycache__/
 .env
 .pytest_cache/
 
+# Google OAuth client + cached token (live credentials — never commit)
+client_secret*.json
+authorized_user*.json
+secrets/
+
 # macOS + local worker logs
 .DS_Store
 **/.DS_Store
