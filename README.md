@@ -182,7 +182,34 @@ req-id/back-link match or an LLM-confirmed fuzzy match, writes it with `jd_sourc
 (flagged for review), and resets routing so the next poll re-routes it with the real JD.
 Optional live check: `JOBMAXXING_E2E=1 uv run pytest tests/test_recover_e2e.py -v`.
 
-### Job decision sheet (Google Sheets, two-way)
+### Local triage table (recommended)
+
+Interactive web table to triage routed jobs — no Google account, no auth, localhost only. Writes
+straight to Postgres; re-running your local `tailor` picks up approved jobs automatically.
+
+Setup: `uv sync --extra web`
+
+Run:
+
+    uv run --extra web python -m jobmaxxing.web
+
+Then open `http://127.0.0.1:8765` in a browser. Set `WEB_PORT` to change the port.
+
+The table shows routed jobs (those with a `resume_type`), newest first, defaulting to the
+undecided view. Decision semantics:
+
+- **Interested** → `approved_for_tailoring` (queues the job for your local `tailor` run)
+- **Not interested** → `rejected`
+- **Applied** → `applied`
+- **↺ reset** → back to `routed`
+
+Security posture: binds to `127.0.0.1` only, single-user, JSON-only POST with Host-header
+allowlist — no external network exposure.
+
+### Job decision sheet (Google Sheets, two-way) — superseded by the local triage table
+
+*Superseded by the Local triage table above; kept for reference. Requires adding yourself as an
+OAuth test user on the Google consent screen.*
 
 Triage routed jobs in a spreadsheet instead of one MCP call at a time. One-time setup (auth as
 **yourself** via Application Default Credentials — no service account, no key file, no sharing;
