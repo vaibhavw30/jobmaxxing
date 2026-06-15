@@ -66,7 +66,7 @@ def fetch_triage_rows(conn, *, status=None, statuses=None, resume_type=None,
     """Return routed jobs (resume_type IS NOT NULL) as a list of column-keyed dicts.
 
     Filters: status= (single), statuses= (IN list; precedence over status=), resume_type=.
-    Sorting via _order_by (real impl in Task 2). description returned as plain text.
+    Sorting via the _order_by whitelist (default: recent + relevant). description is plain text.
     Capped at MAX_LIMIT rows.
     """
     where, params = _build_where(status, statuses, resume_type)

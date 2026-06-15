@@ -289,14 +289,16 @@ def test_default_demotes_low_confidence_below_high(conn):
     assert ids.index(older_high) < ids.index(recent_low)
 
 def test_default_null_confidence_treated_as_high(conn):
-    """NULL route_confidence (manual) is treated as high-trust, not floated to the top spuriously."""
+    """NULL route_confidence (manual) is HIGH-trust (tier 0): it ranks above a low-confidence
+    job even when older — which only holds if coalesce(route_confidence, 1.0), not 0.0, is used."""
     from datetime import datetime, timezone
-    null_conf = _insert(conn, dedupe_key="d|null", posted_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-                        route_confidence=None)
-    recent_high = _insert(conn, dedupe_key="d|rh", posted_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
-                          route_confidence=0.9)
+    null_old = _insert(conn, dedupe_key="d|null", posted_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                       route_confidence=None)
+    low_new = _insert(conn, dedupe_key="d|low", posted_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+                      route_confidence=0.2)
     ids = [str(r["id"]) for r in fetch_triage_rows(conn)]
-    assert ids.index(recent_high) < ids.index(null_conf)
+    # null is high-tier, low is demoted -> null ranks above low DESPITE being older
+    assert ids.index(null_old) < ids.index(low_new)
 
 def test_sort_company_asc_and_desc(conn):
     a = _insert(conn, dedupe_key="s|c|a", company="Alpha")
