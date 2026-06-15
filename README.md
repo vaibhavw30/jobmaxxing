@@ -184,11 +184,19 @@ Optional live check: `JOBMAXXING_E2E=1 uv run pytest tests/test_recover_e2e.py -
 
 ### Job decision sheet (Google Sheets, two-way)
 
-Triage routed jobs in a spreadsheet instead of one MCP call at a time. One-time setup:
+Triage routed jobs in a spreadsheet instead of one MCP call at a time. One-time setup (auth as
+**yourself** via Application Default Credentials — no service account, no key file, no sharing;
+Google's "Secure by Default" policy blocks service-account keys on most new projects anyway):
 
-1. Create a Google Cloud service account, enable the Google Sheets API, download its JSON key.
-2. Create a Google Sheet, share it (Editor) with the service account's email.
-3. Set `GSHEET_ID` and `GOOGLE_SERVICE_ACCOUNT_FILE` in `.env`; `uv sync --extra sheets`.
+1. In a Google Cloud project, enable the **Google Sheets API** and the **Google Drive API**.
+2. Install gcloud (`brew install --cask google-cloud-sdk`) and authorize once:
+   `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/drive`
+   (if it errors on a quota project: `gcloud auth application-default set-quota-project <PROJECT_ID>`).
+3. Create a Google Sheet in your own account; set `GSHEET_ID` (the id in its URL) in `.env`, leave
+   `GOOGLE_SERVICE_ACCOUNT_FILE` blank; `uv sync --extra sheets`.
+
+(Service-account auth is still supported: set `GOOGLE_SERVICE_ACCOUNT_FILE` to a JSON key path and
+share the sheet with the account's email — but key creation is often org-policy-blocked, so ADC is the default.)
 
 Then sync (locally, or the `sync_sheet` MCP tool): `uv run --extra sheets python -m jobmaxxing.sync_sheet`.
 It pushes routed jobs (company, title, JD, status, …) into the sheet and pulls your decision columns

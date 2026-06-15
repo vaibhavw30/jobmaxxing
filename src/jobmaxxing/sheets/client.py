@@ -12,19 +12,33 @@ class SheetClient(Protocol):
     def update_cells(self, updates: list[tuple]) -> None: ...   # [(row, col_name, value), ...]
 
 
+_SHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
+                  "https://www.googleapis.com/auth/drive"]
+
+
 class GspreadClient:
-    """Real SheetClient over gspread + a Google service account. Lazily imports gspread so the
-    package imports without the 'sheets' extra. Reads GSHEET_ID + GOOGLE_SERVICE_ACCOUNT_FILE."""
+    """Real SheetClient over gspread. Lazily imports gspread so the package imports without the
+    'sheets' extra. Auth (GSHEET_ID required either way):
+      - GOOGLE_SERVICE_ACCOUNT_FILE set -> service-account key (share the sheet with its email); else
+      - Application Default Credentials -> authenticates as YOU; no key, no sharing. Run once:
+        `gcloud auth application-default login --scopes=<spreadsheets>,<drive>`.
+    ADC is the default because Google's 'Secure by Default' org policy often blocks service-account
+    key creation on new projects."""
 
     def __init__(self):
         import gspread
-        key_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE")
         sheet_id = os.environ.get("GSHEET_ID")
-        if not key_path or not sheet_id:
-            raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_FILE and GSHEET_ID must be set (see .env.example)")
+        if not sheet_id:
+            raise RuntimeError("GSHEET_ID must be set (see .env.example)")
+        key_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE")
+        if key_path:
+            gc = gspread.service_account(filename=key_path)
+        else:
+            import google.auth                                    # Application Default Credentials (you)
+            creds, _ = google.auth.default(scopes=_SHEETS_SCOPES)
+            gc = gspread.authorize(creds)
         self._gspread = gspread
-        # gspread's canonical service-account entry point (no manual google-auth Credentials dance)
-        self._ws = gspread.service_account(filename=key_path).open_by_key(sheet_id).sheet1
+        self._ws = gc.open_by_key(sheet_id).sheet1
 
     def header(self) -> list[str]:
         return self._ws.row_values(1)
