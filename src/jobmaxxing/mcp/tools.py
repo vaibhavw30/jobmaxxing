@@ -5,14 +5,12 @@ from datetime import datetime, timedelta, timezone
 from ..llm.client import complete as default_complete
 from ..routing.config import load_routing_config
 from ..routing.route import route_one, set_manual
-from ..funnel import VALID_STATUSES
+from ..funnel import VALID_STATUSES  # set_status rejects typos against it; query_jobs stays lenient
 from ..routing.types import Budget
 from ..tailoring.rubric import load_rubric
 from ..tailoring.tailor import approve as _tailoring_approve
 from ..tailoring.tailor import tailor_job
 
-# The funnel states. Consumed by set_status (a write) to reject typos; query_jobs (a read)
-# stays a lenient filter — an unmatched status just returns no rows.
 _QUERY_COLS = ["id", "company", "title", "status", "resume_type", "route_confidence", "url", "posted_at"]
 _QUEUE_COLS = ["id", "company", "title", "url", "resume_type", "route_confidence", "scraped_at"]
 
