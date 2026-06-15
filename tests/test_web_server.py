@@ -221,3 +221,47 @@ def test_get_status_all_includes_decided(client, conn):
     _insert(conn, dedupe_key="srv|all|rej", status="rejected", company="RejectedCo")
     html = client.get("/?status=all").get_data(as_text=True)
     assert "RoutedCo" in html and "RejectedCo" in html
+
+
+def test_get_specific_status_filter_excludes_others(client, conn):
+    _insert(conn, dedupe_key="srv|sf|routed", status="routed", company="RoutedCo")
+    _insert(conn, dedupe_key="srv|sf|applied", status="applied", company="AppliedCo")
+    html = client.get("/?status=applied").get_data(as_text=True)
+    assert "AppliedCo" in html and "RoutedCo" not in html
+
+
+def test_get_renders_conf_and_posted_values(client, conn):
+    from datetime import datetime, timezone
+    # noon UTC keeps the rendered date TZ-stable regardless of the session timezone
+    _insert(conn, dedupe_key="srv|cp", company="ConfCo", route_confidence=0.70,
+            posted_at=datetime(2026, 3, 15, 12, 0, tzinfo=timezone.utc))
+    html = client.get("/").get_data(as_text=True)
+    assert "0.70" in html          # Conf column, %.2f
+    assert "2026-03-15" in html    # Posted column, YYYY-MM-DD
+
+
+def test_get_renders_dash_for_null_conf_and_posted(client, conn):
+    # route_confidence and posted_at left NULL -> both render as the em-dash fallback
+    _insert(conn, dedupe_key="srv|null", company="NullCo")
+    html = client.get("/").get_data(as_text=True)
+    assert "NullCo" in html and "—" in html  # — fallback present, no crash
+
+
+def test_get_header_order_matches_columns(client, conn):
+    """Header labels appear left-to-right in the spec order (proxy for cell/header alignment).
+
+    Scoped to <thead> because 'Status' also appears as a filter-bar label above the table.
+    """
+    _insert(conn, dedupe_key="srv|ho")
+    html = client.get("/").get_data(as_text=True)
+    thead = html[html.index("<thead>"):html.index("</thead>")]
+    labels = ["Company", "Title", "Resume", "Conf", "Posted", "Status", "JD", "Link", "Actions"]
+    positions = [thead.index(lbl) for lbl in labels]
+    assert positions == sorted(positions)
+
+
+def test_status_options_cover_valid_statuses_no_drift(client, conn):
+    from jobmaxxing.funnel import VALID_STATUSES
+    from jobmaxxing.web.server import _STATUS_OPTIONS
+    # _STATUS_OPTIONS = ["undecided", "all", <the funnel statuses...>]
+    assert set(_STATUS_OPTIONS[2:]) == VALID_STATUSES
