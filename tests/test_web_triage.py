@@ -243,3 +243,9 @@ def test_fetch_filters_by_statuses_in(conn):
     assert a_new in ids
     assert b_routed in ids
     assert c_applied not in ids
+
+
+def test_fetch_empty_statuses_raises(conn):
+    """fetch_triage_rows with statuses=() raises ValueError (not silent no-op)."""
+    with pytest.raises(ValueError):
+        fetch_triage_rows(conn, statuses=())

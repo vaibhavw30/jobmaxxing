@@ -156,3 +156,27 @@ def test_favicon_no_db(client):
     """GET /favicon.ico returns 204 and does not touch the DB."""
     resp = client.get("/favicon.ico")
     assert resp.status_code == 204
+
+
+def test_post_decide_malformed_json_400(client):
+    """POST /decide with invalid JSON body returns 400, not 500."""
+    resp = client.post("/decide", data="{not json", content_type="application/json")
+    assert resp.status_code == 400
+
+
+def test_post_decide_missing_job_id_400(client):
+    """POST /decide with valid JSON but no job_id returns 400."""
+    resp = client.post("/decide", json={"interested": "yes"})
+    assert resp.status_code == 400
+
+
+def test_get_default_excludes_decided(client, conn):
+    """GET / with no query args shows only new/routed jobs; decided jobs are absent."""
+    routed_id = _insert(conn, dedupe_key="ws|default|routed", status="routed")
+    rejected_id = _insert(conn, dedupe_key="ws|default|rejected", status="rejected", resume_type="swe")
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert routed_id in body
+    assert rejected_id not in body

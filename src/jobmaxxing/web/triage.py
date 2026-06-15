@@ -25,6 +25,8 @@ def fetch_triage_rows(conn, *, status=None, statuses=None, resume_type=None, lim
     params: list = []
 
     statuses_list = list(statuses) if statuses is not None else None
+    if statuses is not None and not statuses_list:
+        raise ValueError("statuses must be non-empty when provided")
     if statuses_list:
         placeholders = ", ".join(["%s"] * len(statuses_list))
         clauses.append(f"status in ({placeholders})")

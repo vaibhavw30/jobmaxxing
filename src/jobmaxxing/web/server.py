@@ -87,10 +87,10 @@ INDEX_HTML = """<!DOCTYPE html>
     </td>
     <td>
       <div class="controls">
-        <button class="btn-yes" onclick="decide('{{ row.id }}', {interested:'yes'})">&#10003; Yes</button>
-        <button class="btn-no"  onclick="decide('{{ row.id }}', {interested:'no'})">&#10007; No</button>
-        <button class="btn-applied" onclick="decide('{{ row.id }}', {applied:'true'})">Applied</button>
-        <button class="btn-reset" onclick="doReset('{{ row.id }}')">&#8634; reset</button>
+        <button class="btn-yes" onclick="decide('{{ row.id }}', {interested:'yes'}, event)">&#10003; Yes</button>
+        <button class="btn-no"  onclick="decide('{{ row.id }}', {interested:'no'}, event)">&#10007; No</button>
+        <button class="btn-applied" onclick="decide('{{ row.id }}', {applied:'true'}, event)">Applied</button>
+        <button class="btn-reset" onclick="doReset('{{ row.id }}', event)">&#8634; reset</button>
       </div>
     </td>
   </tr>
@@ -110,8 +110,10 @@ function setBadge(jobId, status) {
   el.textContent = status;
 }
 
-async function decide(jobId, payload) {
+async function decide(jobId, payload, event) {
   payload.job_id = jobId;
+  var btn = event.currentTarget;
+  btn.disabled = true;
   try {
     var resp = await fetch('/decide', {
       method: 'POST',
@@ -127,10 +129,14 @@ async function decide(jobId, payload) {
     }
   } catch (e) {
     alert('Network error: ' + e);
+  } finally {
+    btn.disabled = false;
   }
 }
 
-async function doReset(jobId) {
+async function doReset(jobId, event) {
+  var btn = event.currentTarget;
+  btn.disabled = true;
   try {
     var resp = await fetch('/reset', {
       method: 'POST',
@@ -146,6 +152,8 @@ async function doReset(jobId) {
     }
   } catch (e) {
     alert('Network error: ' + e);
+  } finally {
+    btn.disabled = false;
   }
 }
 </script>
@@ -202,8 +210,12 @@ def create_app(conn_factory):
     def decide():
         if not request.is_json:
             return ("unsupported media type: expected application/json", 415)
-        body = request.get_json()
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return ("malformed or empty JSON body", 400)
         job_id = body.get("job_id")
+        if not job_id:
+            return ("missing job_id", 400)
         interested = body.get("interested")
         applied = body.get("applied")
         try:
@@ -217,8 +229,12 @@ def create_app(conn_factory):
     def reset():
         if not request.is_json:
             return ("unsupported media type: expected application/json", 415)
-        body = request.get_json()
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return ("malformed or empty JSON body", 400)
         job_id = body.get("job_id")
+        if not job_id:
+            return ("missing job_id", 400)
         with conn_factory() as conn:
             result = reset_to_routed(conn, job_id)
         return jsonify(result)
