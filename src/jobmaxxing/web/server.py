@@ -122,7 +122,7 @@ async function decide(jobId, payload, event) {
     });
     if (resp.ok) {
       var data = await resp.json();
-      setBadge(jobId, data.status);
+      if (data.changed) { setBadge(jobId, data.status); }
     } else {
       var err = await resp.text();
       alert('Error ' + resp.status + ': ' + err);
@@ -145,7 +145,7 @@ async function doReset(jobId, event) {
     });
     if (resp.ok) {
       var data = await resp.json();
-      setBadge(jobId, data.status);
+      if (data.changed) { setBadge(jobId, data.status); }
     } else {
       var err = await resp.text();
       alert('Error ' + resp.status + ': ' + err);
