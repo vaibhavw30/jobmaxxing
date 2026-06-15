@@ -29,16 +29,18 @@ def conn(postgresql):
 
 
 def _insert(conn, *, dedupe_key, resume_type="swe", status="routed", description="<p>jd</p>",
-            company="Acme", title="SWE Intern", scraped_at=None):
-    conn.execute(
-        "insert into jobs (dedupe_key, source, company, title, url, description, resume_type, status"
-        + (", scraped_at" if scraped_at is not None else "")
-        + ") values (%s,'github:simplify',%s,%s,%s,%s,%s,%s"
-        + (",%s" if scraped_at is not None else "")
-        + ")",
-        (dedupe_key, company, title, f"https://x/{dedupe_key}", description, resume_type, status)
-        + ((scraped_at,) if scraped_at is not None else ()),
-    )
+            company="Acme", title="SWE Intern", scraped_at=None, posted_at=None,
+            route_confidence=None, route_method=None):
+    cols = ["dedupe_key", "source", "company", "title", "url", "description", "resume_type", "status"]
+    vals = [dedupe_key, "github:simplify", company, title, f"https://x/{dedupe_key}",
+            description, resume_type, status]
+    for name, value in (("scraped_at", scraped_at), ("posted_at", posted_at),
+                        ("route_confidence", route_confidence), ("route_method", route_method)):
+        if value is not None:
+            cols.append(name)
+            vals.append(value)
+    placeholders = ", ".join(["%s"] * len(vals))
+    conn.execute(f"insert into jobs ({', '.join(cols)}) values ({placeholders})", vals)
     conn.commit()
     return str(conn.execute("select id from jobs where dedupe_key=%s", (dedupe_key,)).fetchone()[0])
 
@@ -180,3 +182,42 @@ def test_get_default_excludes_decided(client, conn):
     body = resp.get_data(as_text=True)
     assert routed_id in body
     assert rejected_id not in body
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — sorting, filters, count indicator
+# ---------------------------------------------------------------------------
+
+
+def test_get_sort_company_orders_rows_in_html(client, conn):
+    _insert(conn, dedupe_key="srv|zeta", company="ZetaCorp")
+    _insert(conn, dedupe_key="srv|alpha", company="AlphaCorp")
+    html = client.get("/?sort=company&dir=asc").get_data(as_text=True)
+    assert html.index("AlphaCorp") < html.index("ZetaCorp")
+
+
+def test_get_header_link_toggles_direction(client, conn):
+    _insert(conn, dedupe_key="srv|h1", company="AlphaCorp")
+    html = client.get("/?sort=company&dir=asc").get_data(as_text=True)
+    # the Company header, already asc, should link to dir=desc (allow HTML-escaped &)
+    assert ("sort=company&dir=desc" in html) or ("sort=company&amp;dir=desc" in html)
+
+
+def test_get_sort_links_preserve_filters(client, conn):
+    _insert(conn, dedupe_key="srv|f1", resume_type="swe")
+    html = client.get("/?resume_type=swe").get_data(as_text=True)
+    assert "resume_type=swe" in html and "sort=" in html
+
+
+def test_get_shows_count_indicator(client, conn):
+    for i in range(3):
+        _insert(conn, dedupe_key=f"srv|cnt|{i}")
+    html = client.get("/").get_data(as_text=True)
+    assert "of 3" in html  # "showing 3 of 3"
+
+
+def test_get_status_all_includes_decided(client, conn):
+    _insert(conn, dedupe_key="srv|all|routed", status="routed", company="RoutedCo")
+    _insert(conn, dedupe_key="srv|all|rej", status="rejected", company="RejectedCo")
+    html = client.get("/?status=all").get_data(as_text=True)
+    assert "RoutedCo" in html and "RejectedCo" in html

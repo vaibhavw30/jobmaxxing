@@ -9,6 +9,14 @@ import os
 
 logger = logging.getLogger(__name__)
 
+# Status dropdown options; "undecided" and "all" are pseudo-filters.
+_STATUS_OPTIONS = ["undecided", "all", "new", "routed", "approved_for_tailoring",
+                   "tailored", "reviewed", "applied", "rejected"]
+
+# Sortable columns: (sort_key, header_label, default_direction).
+_SORT_HEADERS = [("company", "Company", "asc"), ("type", "Resume", "asc"),
+                 ("conf", "Conf", "desc"), ("posted", "Posted", "desc")]
+
 # ---------------------------------------------------------------------------
 # INDEX_HTML — inline template rendered with render_template_string
 # ---------------------------------------------------------------------------
@@ -52,19 +60,45 @@ INDEX_HTML = """<!DOCTYPE html>
   button:hover { opacity: 0.85; }
   .company { font-weight: 700; }
   .title { color: #374151; }
+  .bar { padding: 8px 10px; background: #1a1a2e; color: #fff; display: flex; gap: 16px;
+         align-items: center; flex-wrap: wrap; font-size: 12px; }
+  .bar select { font-size: 12px; padding: 2px 4px; }
+  .bar .count { margin-left: auto; color: #c7d2fe; }
+  thead th a { color: #fff; text-decoration: none; }
+  thead th a:hover { text-decoration: underline; }
+  .conf { text-align: right; color: #6b7280; font-variant-numeric: tabular-nums; }
+  .posted { white-space: nowrap; color: #374151; }
 </style>
 </head>
 <body>
+<div class="bar">
+  <form method="get" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0;">
+    <input type="hidden" name="sort" value="{{ active_sort }}">
+    <input type="hidden" name="dir" value="{{ active_dir }}">
+    <label>Status
+      <select name="status" onchange="this.form.submit()">
+        {% for s in status_options %}
+        <option value="{{ s }}" {{ 'selected' if s == status_sel else '' }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Category
+      <select name="resume_type" onchange="this.form.submit()">
+        <option value="" {{ 'selected' if resume_type_sel == '' else '' }}>all</option>
+        {% for c in categories %}
+        <option value="{{ c }}" {{ 'selected' if c == resume_type_sel else '' }}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+  <span class="count">showing {{ shown }} of {{ total }} matching{% if total > shown %} — narrow with a filter{% endif %}</span>
+</div>
 <table>
   <thead>
     <tr>
-      <th>Company</th>
-      <th>Title</th>
-      <th>Resume</th>
-      <th>Status</th>
-      <th>JD</th>
-      <th>Link</th>
-      <th>Actions</th>
+      {% for h in headers %}
+      <th>{% if h.href %}<a href="{{ h.href }}">{{ h.label }}{{ h.arrow }}</a>{% else %}{{ h.label }}{% endif %}</th>
+      {% endfor %}
     </tr>
   </thead>
   <tbody>
@@ -73,6 +107,8 @@ INDEX_HTML = """<!DOCTYPE html>
     <td class="company">{{ row.company }}</td>
     <td class="title">{{ row.title }}</td>
     <td>{{ row.resume_type or '' }}</td>
+    <td class="conf">{{ '%.2f'|format(row.route_confidence) if row.route_confidence is not none else '—' }}</td>
+    <td class="posted">{{ row.posted_at.strftime('%Y-%m-%d') if row.posted_at else '—' }}</td>
     <td>
       <span class="badge badge-{{ row.status }}" id="badge-{{ row.id }}">{{ row.status }}</span>
     </td>
@@ -95,7 +131,7 @@ INDEX_HTML = """<!DOCTYPE html>
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="7" style="text-align:center;padding:20px;color:#9ca3af;">No jobs to triage.</td></tr>
+  <tr><td colspan="9" style="text-align:center;padding:20px;color:#9ca3af;">No jobs to triage.</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -162,6 +198,37 @@ async function doReset(jobId, event) {
 """
 
 
+def _build_headers(active_sort, active_dir, status_sel, resume_type_sel):
+    """Ordered <th> descriptors. Sortable columns get an href that toggles direction and
+    preserves active filters; non-sortable columns get href=None. Order matches the row cells."""
+    from urllib.parse import urlencode
+    base = {}
+    if status_sel:
+        base["status"] = status_sel
+    if resume_type_sel:
+        base["resume_type"] = resume_type_sel
+    sortable = {}
+    for key, label, default_dir in _SORT_HEADERS:
+        if active_sort == key:
+            new_dir = "asc" if active_dir == "desc" else "desc"
+            arrow = " ↑" if active_dir == "asc" else " ↓"
+        else:
+            new_dir, arrow = default_dir, ""
+        sortable[key] = {"label": label,
+                         "href": "/?" + urlencode({**base, "sort": key, "dir": new_dir}),
+                         "arrow": arrow}
+    order = [("company", None), (None, "Title"), ("type", None), ("conf", None),
+             ("posted", None), (None, "Status"), (None, "JD"), (None, "Link"), (None, "Actions")]
+    headers = []
+    for key, plain_label in order:
+        if key:
+            h = sortable[key]
+            headers.append({"label": h["label"], "href": h["href"], "arrow": h["arrow"]})
+        else:
+            headers.append({"label": plain_label, "href": None, "arrow": ""})
+    return headers
+
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -174,7 +241,7 @@ def create_app(conn_factory):
     """
     from flask import Flask, jsonify, render_template_string, request
 
-    from .triage import apply_decision, fetch_triage_rows, reset_to_routed
+    from .triage import apply_decision, count_triage, fetch_triage_rows, reset_to_routed
 
     app = Flask(__name__)
 
@@ -192,19 +259,38 @@ def create_app(conn_factory):
 
     @app.get("/")
     def index():
-        status_arg = request.args.get("status")
+        status_arg = request.args.get("status") or "undecided"
         resume_type_arg = request.args.get("resume_type") or None
+        sort_arg = request.args.get("sort") or None
+        dir_arg = request.args.get("dir") or None
+
+        status = None
+        statuses = None
+        if status_arg == "undecided":
+            statuses = ("new", "routed")
+        elif status_arg == "all":
+            pass  # no status filter
+        else:
+            status = status_arg
+
         with conn_factory() as conn:
-            if status_arg is not None:
-                rows = fetch_triage_rows(conn, status=status_arg, resume_type=resume_type_arg)
-            else:
-                rows = fetch_triage_rows(
-                    conn, statuses=("new", "routed"), resume_type=resume_type_arg
-                )
-        # Stringify id for template/JS (UUIDs need to be strings)
+            rows = fetch_triage_rows(conn, status=status, statuses=statuses,
+                                     resume_type=resume_type_arg, sort=sort_arg, direction=dir_arg)
+            total = count_triage(conn, status=status, statuses=statuses, resume_type=resume_type_arg)
+            cats = [r[0] for r in conn.execute(
+                "select distinct resume_type from jobs where resume_type is not null order by 1"
+            ).fetchall()]
+
         for row in rows:
             row["id"] = str(row["id"])
-        return render_template_string(INDEX_HTML, rows=rows)
+
+        headers = _build_headers(sort_arg, dir_arg, status_arg, resume_type_arg or "")
+        return render_template_string(
+            INDEX_HTML, rows=rows, headers=headers, total=total, shown=len(rows),
+            status_options=_STATUS_OPTIONS, status_sel=status_arg,
+            categories=cats, resume_type_sel=(resume_type_arg or ""),
+            active_sort=(sort_arg or ""), active_dir=(dir_arg or ""),
+        )
 
     @app.post("/decide")
     def decide():
