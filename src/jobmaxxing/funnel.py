@@ -16,9 +16,10 @@ VALID_STATUSES = {
     "new", "routed", "approved_for_tailoring", "tailored", "reviewed", "applied", "rejected",
 }
 
+TRIAGE_COLUMNS = ("id", "company", "title", "description", "resume_type", "status", "posted_at", "url")
+
 ROUTED_JOBS_SQL = (
-    "select id, company, title, description, resume_type, status, posted_at, url "
-    "from jobs where resume_type is not null order by scraped_at desc"
+    f"select {', '.join(TRIAGE_COLUMNS)} from jobs where resume_type is not null order by scraped_at desc"
 )
 
 

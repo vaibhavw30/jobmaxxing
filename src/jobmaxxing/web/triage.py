@@ -3,11 +3,11 @@
 No Flask import. Takes a live psycopg conn as a parameter.
 """
 
-from ..funnel import decision_to_status, plain_text
+from ..funnel import TRIAGE_COLUMNS, decision_to_status, plain_text
 
-# Same columns as ROUTED_JOBS_SQL — kept here as the local source of truth so
-# we can build parameterized WHERE clauses without appending after ORDER BY.
-_TRIAGE_COLS = ["id", "company", "title", "description", "resume_type", "status", "posted_at", "url"]
+# Alias the canonical column list from funnel so we can build parameterised
+# WHERE clauses without appending after ORDER BY.
+_TRIAGE_COLS = TRIAGE_COLUMNS
 
 _MAX_LIMIT = 200
 
@@ -84,4 +84,4 @@ def reset_to_routed(conn, job_id) -> dict:
             " where id=%s and status in ('new','routed','approved_for_tailoring','rejected')",
             (job_id,),
         )
-    return {"job_id": str(job_id), "changed": cur.rowcount > 0}
+    return {"job_id": str(job_id), "status": "routed", "changed": cur.rowcount > 0}

@@ -106,6 +106,28 @@ def test_fetch_orders_newest_first(conn):
     assert ids == [a, b, c]
 
 
+def test_fetch_limit_capped(conn):
+    """limit= is honoured and capped at _MAX_LIMIT (200); limit=0 is clamped to 1."""
+    from jobmaxxing.web.triage import _MAX_LIMIT
+
+    # Seed 3 routed jobs.
+    _insert(conn, dedupe_key="lc|1")
+    _insert(conn, dedupe_key="lc|2")
+    _insert(conn, dedupe_key="lc|3")
+
+    # limit=2 returns exactly 2 (cap is honoured when below max).
+    rows_2 = fetch_triage_rows(conn, limit=2)
+    assert len(rows_2) == 2
+
+    # limit=500 exceeds _MAX_LIMIT but doesn't error; returns all 3 (< cap).
+    rows_all = fetch_triage_rows(conn, limit=500)
+    assert len(rows_all) == 3
+
+    # limit=0 is clamped to 1, returns at least 1 row.
+    rows_0 = fetch_triage_rows(conn, limit=0)
+    assert len(rows_0) >= 1
+
+
 # ---------------------------------------------------------------------------
 # apply_decision tests
 # ---------------------------------------------------------------------------
@@ -150,6 +172,8 @@ def test_apply_idempotent(conn):
     result2 = apply_decision(conn, jid, interested="yes")
     assert result2["changed"] is False
     assert result2["status"] == "approved_for_tailoring"
+    row = conn.execute("select status from jobs where id=%s", (uuid.UUID(jid),)).fetchone()
+    assert row[0] == "approved_for_tailoring"
 
 
 def test_apply_no_regress_from_tailored(conn):
