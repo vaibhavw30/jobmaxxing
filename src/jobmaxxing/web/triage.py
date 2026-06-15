@@ -15,8 +15,30 @@ DEFAULT_LIMIT = 500
 MAX_LIMIT = 500
 
 
-def _order_by(sort, direction):  # replaced in Task 2
-    return "order by scraped_at desc"
+# Jobs with route_confidence below this are demoted (second tier) in the default order.
+# 0.4 matches the provisional title-only (route_method='llm_title') confidence cap.
+RELEVANCE_FLOOR = 0.4
+
+# Whitelist of clickable-header sort keys -> (sql_expression, default_direction, secondary).
+# Expressions are FIXED strings (never user input) -> no SQL injection.
+_SORTS = {
+    "posted":  ("posted_at",        "desc", ""),
+    "company": ("lower(company)",   "asc",  ""),
+    "type":    ("resume_type",      "asc",  ", posted_at desc"),
+    "conf":    ("route_confidence", "desc", ", posted_at desc"),
+}
+
+
+def _order_by(sort, direction):
+    """Build an ORDER BY from the whitelist. Unknown sort -> the 'recent + relevant' default."""
+    if sort in _SORTS:
+        expr, default_dir, secondary = _SORTS[sort]
+        d = direction if direction in ("asc", "desc") else default_dir
+        return f"order by {expr} {d}{secondary}, id asc"
+    # Default: high-confidence tier first, newest posting first within it.
+    # RELEVANCE_FLOOR is a trusted constant, formatted as a literal (not user input).
+    return (f"order by (coalesce(route_confidence, 1.0) < {RELEVANCE_FLOOR}) asc,"
+            f" posted_at desc nulls last, id asc")
 
 
 def _build_where(status, statuses, resume_type):

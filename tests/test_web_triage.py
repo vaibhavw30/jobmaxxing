@@ -95,17 +95,14 @@ def test_fetch_default_excludes_decided(conn):
 
 
 def test_fetch_orders_newest_first(conn):
-    """Explicit decreasing scraped_at values produce newest-first ordering."""
+    """Default order leads with posted_at desc within one confidence tier."""
     from datetime import datetime, timezone
-    t1 = datetime(2025, 1, 3, tzinfo=timezone.utc)
-    t2 = datetime(2025, 1, 2, tzinfo=timezone.utc)
-    t3 = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    a = _insert(conn, dedupe_key="f|o|newest", scraped_at=t1)
-    b = _insert(conn, dedupe_key="f|o|middle", scraped_at=t2)
-    c = _insert(conn, dedupe_key="f|o|oldest", scraped_at=t3)
-    rows = fetch_triage_rows(conn)
-    ids = [str(r["id"]) for r in rows]
-    assert ids == [a, b, c]
+    old = _insert(conn, dedupe_key="o|old", posted_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                  route_confidence=0.9)
+    new = _insert(conn, dedupe_key="o|new", posted_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+                  route_confidence=0.9)
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn)]
+    assert ids.index(new) < ids.index(old)
 
 
 def test_fetch_limit_capped(conn):
@@ -274,3 +271,74 @@ def test_fetch_includes_route_confidence(conn):
     rows = fetch_triage_rows(conn)
     assert "route_confidence" in rows[0]
     assert abs(rows[0]["route_confidence"] - 0.83) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# Task 2: _order_by whitelist + recent+relevant default order tests
+# ---------------------------------------------------------------------------
+
+
+def test_default_demotes_low_confidence_below_high(conn):
+    """A RECENT low-confidence job ranks below an OLDER high-confidence one (tier beats recency)."""
+    from datetime import datetime, timezone
+    recent_low = _insert(conn, dedupe_key="d|recent_low",
+                         posted_at=datetime(2026, 6, 10, tzinfo=timezone.utc), route_confidence=0.2)
+    older_high = _insert(conn, dedupe_key="d|older_high",
+                         posted_at=datetime(2026, 1, 1, tzinfo=timezone.utc), route_confidence=0.9)
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn)]
+    assert ids.index(older_high) < ids.index(recent_low)
+
+def test_default_null_confidence_treated_as_high(conn):
+    """NULL route_confidence (manual) is treated as high-trust, not floated to the top spuriously."""
+    from datetime import datetime, timezone
+    null_conf = _insert(conn, dedupe_key="d|null", posted_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                        route_confidence=None)
+    recent_high = _insert(conn, dedupe_key="d|rh", posted_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+                          route_confidence=0.9)
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn)]
+    assert ids.index(recent_high) < ids.index(null_conf)
+
+def test_sort_company_asc_and_desc(conn):
+    a = _insert(conn, dedupe_key="s|c|a", company="Alpha")
+    z = _insert(conn, dedupe_key="s|c|z", company="Zeta")
+    asc = [str(r["id"]) for r in fetch_triage_rows(conn, sort="company", direction="asc")]
+    assert asc.index(a) < asc.index(z)
+    desc = [str(r["id"]) for r in fetch_triage_rows(conn, sort="company", direction="desc")]
+    assert desc.index(z) < desc.index(a)
+
+def test_sort_posted_is_pure_recency_ignoring_confidence(conn):
+    """The 'posted' key sorts by posted_at only — a recent low-confidence job leads."""
+    from datetime import datetime, timezone
+    recent_low = _insert(conn, dedupe_key="s|p|rl",
+                         posted_at=datetime(2026, 6, 10, tzinfo=timezone.utc), route_confidence=0.1)
+    older_high = _insert(conn, dedupe_key="s|p|oh",
+                         posted_at=datetime(2026, 1, 1, tzinfo=timezone.utc), route_confidence=0.9)
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn, sort="posted", direction="desc")]
+    assert ids.index(recent_low) < ids.index(older_high)
+
+def test_sort_type_groups_then_recency(conn):
+    from datetime import datetime, timezone
+    ai_new = _insert(conn, dedupe_key="s|t|ai_new", resume_type="ai",
+                     posted_at=datetime(2026, 6, 1, tzinfo=timezone.utc))
+    ai_old = _insert(conn, dedupe_key="s|t|ai_old", resume_type="ai",
+                     posted_at=datetime(2025, 1, 1, tzinfo=timezone.utc))
+    swe = _insert(conn, dedupe_key="s|t|swe", resume_type="swe",
+                  posted_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn, sort="type", direction="asc")]
+    assert ids.index(ai_new) < ids.index(ai_old) < ids.index(swe)
+
+def test_sort_confidence_desc(conn):
+    lo = _insert(conn, dedupe_key="s|conf|lo", route_confidence=0.2)
+    hi = _insert(conn, dedupe_key="s|conf|hi", route_confidence=0.95)
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn, sort="conf", direction="desc")]
+    assert ids.index(hi) < ids.index(lo)
+
+def test_sort_unknown_key_falls_back_to_default(conn):
+    """An unknown/garbage sort key is ignored (no error, no injection) -> default order."""
+    from datetime import datetime, timezone
+    old = _insert(conn, dedupe_key="s|u|old", posted_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                  route_confidence=0.9)
+    new = _insert(conn, dedupe_key="s|u|new", posted_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+                  route_confidence=0.9)
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn, sort="company); drop table jobs--", direction="x")]
+    assert ids.index(new) < ids.index(old)
