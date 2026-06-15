@@ -6,7 +6,7 @@ import psycopg
 import pytest
 
 from jobmaxxing.migrate import apply_migrations
-from jobmaxxing.web.triage import apply_decision, fetch_triage_rows, reset_to_routed
+from jobmaxxing.web.triage import apply_decision, count_triage, fetch_triage_rows, reset_to_routed
 
 
 # ---------------------------------------------------------------------------
@@ -24,16 +24,18 @@ def conn(postgresql):
 
 
 def _insert(conn, *, dedupe_key, resume_type="swe", status="routed", description="<p>jd</p>",
-            company="Acme", title="SWE Intern", scraped_at=None):
-    conn.execute(
-        "insert into jobs (dedupe_key, source, company, title, url, description, resume_type, status"
-        + (", scraped_at" if scraped_at is not None else "")
-        + ") values (%s,'github:simplify',%s,%s,%s,%s,%s,%s"
-        + (",%s" if scraped_at is not None else "")
-        + ")",
-        (dedupe_key, company, title, f"https://x/{dedupe_key}", description, resume_type, status)
-        + ((scraped_at,) if scraped_at is not None else ()),
-    )
+            company="Acme", title="SWE Intern", scraped_at=None, posted_at=None,
+            route_confidence=None, route_method=None):
+    cols = ["dedupe_key", "source", "company", "title", "url", "description", "resume_type", "status"]
+    vals = [dedupe_key, "github:simplify", company, title, f"https://x/{dedupe_key}",
+            description, resume_type, status]
+    for name, value in (("scraped_at", scraped_at), ("posted_at", posted_at),
+                        ("route_confidence", route_confidence), ("route_method", route_method)):
+        if value is not None:
+            cols.append(name)
+            vals.append(value)
+    placeholders = ", ".join(["%s"] * len(vals))
+    conn.execute(f"insert into jobs ({', '.join(cols)}) values ({placeholders})", vals)
     conn.commit()
     return str(conn.execute("select id from jobs where dedupe_key=%s", (dedupe_key,)).fetchone()[0])
 
@@ -107,8 +109,8 @@ def test_fetch_orders_newest_first(conn):
 
 
 def test_fetch_limit_capped(conn):
-    """limit= is honoured and capped at _MAX_LIMIT (200); limit=0 is clamped to 1."""
-    from jobmaxxing.web.triage import _MAX_LIMIT
+    """limit= is honoured and capped at MAX_LIMIT (500); limit=0 is clamped to 1."""
+    from jobmaxxing.web.triage import MAX_LIMIT
 
     # Seed 3 routed jobs.
     _insert(conn, dedupe_key="lc|1")
@@ -249,3 +251,26 @@ def test_fetch_empty_statuses_raises(conn):
     """fetch_triage_rows with statuses=() raises ValueError (not silent no-op)."""
     with pytest.raises(ValueError):
         fetch_triage_rows(conn, statuses=())
+
+
+# ---------------------------------------------------------------------------
+# Task 1: count_triage and route_confidence column tests
+# ---------------------------------------------------------------------------
+
+
+def test_count_triage_matches_filters_ignoring_limit(conn):
+    for i in range(5):
+        _insert(conn, dedupe_key=f"c|swe|{i}", resume_type="swe", status="routed")
+    _insert(conn, dedupe_key="c|swe|rej", resume_type="swe", status="rejected")
+    _insert(conn, dedupe_key="c|mle", resume_type="mle", status="routed")
+    assert count_triage(conn) == 7
+    assert count_triage(conn, statuses=("new", "routed")) == 6
+    assert count_triage(conn, resume_type="swe") == 6
+    assert count_triage(conn, statuses=("routed",), resume_type="mle") == 1
+
+
+def test_fetch_includes_route_confidence(conn):
+    _insert(conn, dedupe_key="rc|1", route_confidence=0.83)
+    rows = fetch_triage_rows(conn)
+    assert "route_confidence" in rows[0]
+    assert abs(rows[0]["route_confidence"] - 0.83) < 1e-6

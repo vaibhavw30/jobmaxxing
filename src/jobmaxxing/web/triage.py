@@ -5,25 +5,22 @@ No Flask import. Takes a live psycopg conn as a parameter.
 
 from ..funnel import TRIAGE_COLUMNS, decision_to_status, plain_text
 
-# Alias the canonical column list from funnel so we can build parameterised
-# WHERE clauses without appending after ORDER BY.
-_TRIAGE_COLS = TRIAGE_COLUMNS
+# Columns rendered by the web table: the canonical funnel set plus route_confidence
+# (a display/relevance signal not part of the Sheets-facing TRIAGE_COLUMNS).
+_DISPLAY_COLS = (*TRIAGE_COLUMNS, "route_confidence")
 
-_MAX_LIMIT = 200
+DEFAULT_LIMIT = 500
+MAX_LIMIT = 500
 
 
-def fetch_triage_rows(conn, *, status=None, statuses=None, resume_type=None, limit=200) -> list[dict]:
-    """Return routed jobs (resume_type IS NOT NULL) as a list of column-keyed dicts.
+def _order_by(sort, direction):  # replaced in Task 2
+    return "order by scraped_at desc"
 
-    Optional filters:
-      status=      — single status string equality filter.
-      statuses=    — iterable of status strings; filters status IN (...).
-                     When both status= and statuses= are given, statuses= takes precedence.
-    Hard-capped at 200 rows.  description is returned as plain text (HTML stripped).
-    """
+
+def _build_where(status, statuses, resume_type):
+    """Build the shared WHERE clause + params for fetch/count. Routed jobs only."""
     clauses = ["resume_type is not null"]
     params: list = []
-
     statuses_list = list(statuses) if statuses is not None else None
     if statuses is not None and not statuses_list:
         raise ValueError("statuses must be non-empty when provided")
@@ -37,24 +34,35 @@ def fetch_triage_rows(conn, *, status=None, statuses=None, resume_type=None, lim
     if resume_type is not None:
         clauses.append("resume_type = %s")
         params.append(resume_type)
+    return " and ".join(clauses), params
 
-    where = " and ".join(clauses)
-    capped = max(1, min(int(limit), _MAX_LIMIT))
-    params.append(capped)
 
-    sql = (
-        f"select {', '.join(_TRIAGE_COLS)} from jobs"
-        f" where {where}"
-        f" order by scraped_at desc limit %s"
-    )
-    rows = conn.execute(sql, params).fetchall()
+def fetch_triage_rows(conn, *, status=None, statuses=None, resume_type=None,
+                      sort=None, direction=None, limit=DEFAULT_LIMIT) -> list[dict]:
+    """Return routed jobs (resume_type IS NOT NULL) as a list of column-keyed dicts.
+
+    Filters: status= (single), statuses= (IN list; precedence over status=), resume_type=.
+    Sorting via _order_by (real impl in Task 2). description returned as plain text.
+    Capped at MAX_LIMIT rows.
+    """
+    where, params = _build_where(status, statuses, resume_type)
+    order = _order_by(sort, direction)
+    capped = max(1, min(int(limit), MAX_LIMIT))
+    sql = f"select {', '.join(_DISPLAY_COLS)} from jobs where {where} {order} limit %s"
+    rows = conn.execute(sql, params + [capped]).fetchall()
 
     result = []
     for row in rows:
-        d = dict(zip(_TRIAGE_COLS, row))
+        d = dict(zip(_DISPLAY_COLS, row))
         d["description"] = plain_text(d["description"])
         result.append(d)
     return result
+
+
+def count_triage(conn, *, status=None, statuses=None, resume_type=None) -> int:
+    """Total rows matching the same filters as fetch_triage_rows, ignoring sort/limit."""
+    where, params = _build_where(status, statuses, resume_type)
+    return conn.execute(f"select count(*) from jobs where {where}", params).fetchone()[0]
 
 
 def apply_decision(conn, job_id, *, interested=None, applied=None) -> dict:
