@@ -121,7 +121,7 @@ def test_fetch_limit_capped(conn):
     rows_2 = fetch_triage_rows(conn, limit=2)
     assert len(rows_2) == 2
 
-    # limit=500 exceeds _MAX_LIMIT but doesn't error; returns all 3 (< cap).
+    # limit=500 is at MAX_LIMIT but doesn't error; returns all 3 (< cap).
     rows_all = fetch_triage_rows(conn, limit=500)
     assert len(rows_all) == 3
 

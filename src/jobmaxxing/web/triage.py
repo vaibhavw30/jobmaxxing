@@ -9,6 +9,8 @@ from ..funnel import TRIAGE_COLUMNS, decision_to_status, plain_text
 # (a display/relevance signal not part of the Sheets-facing TRIAGE_COLUMNS).
 _DISPLAY_COLS = (*TRIAGE_COLUMNS, "route_confidence")
 
+# DEFAULT_LIMIT == MAX_LIMIT by design: the table renders up to the cap in one page
+# (no pagination yet); the "showing N of M" indicator surfaces any truncation.
 DEFAULT_LIMIT = 500
 MAX_LIMIT = 500
 
