@@ -3,10 +3,12 @@ from datetime import date, datetime, timedelta, timezone
 from jobmaxxing.normalize import (
     ATS_SOURCES,
     canonicalize_url,
-    current_cycle_years,
+    in_window_term_labels,
     make_dedupe_key,
     normalize_text,
     parse_term,
+    term_label,
+    upcoming_terms,
     within_age_cutoff,
 )
 
@@ -101,14 +103,37 @@ def test_age_cutoff_coerces_naive_now_as_utc():
 # ---------------------------------------------------------------------------
 
 
-def test_current_cycle_years_first_half_is_current_year_only():
-    assert current_cycle_years(date(2026, 6, 16)) == {2026}
-    assert current_cycle_years(date(2026, 1, 1)) == {2026}
+def test_upcoming_terms_keeps_next_12_months_of_unstarted_terms():
+    # June 2026: Summer 2026 (started ~May) and Spring 2026 (past) drop;
+    # Fall 2026 .. Summer 2027 stay.
+    assert upcoming_terms(date(2026, 6, 16)) == {
+        ("fall", 2026), ("winter", 2026), ("spring", 2027), ("summer", 2027),
+    }
 
 
-def test_current_cycle_years_h2_adds_next_year():
-    assert current_cycle_years(date(2026, 7, 1)) == {2026, 2027}
-    assert current_cycle_years(date(2026, 12, 31)) == {2026, 2027}
+def test_upcoming_terms_excludes_started_and_far_future():
+    win = upcoming_terms(date(2026, 6, 16))
+    assert ("summer", 2026) not in win   # already started (~May)
+    assert ("spring", 2026) not in win   # past
+    assert ("fall", 2027) not in win     # beyond the 12-month horizon
+
+
+def test_upcoming_terms_rolls_forward_at_year_boundary():
+    # December 2026: the whole 2027 cycle is upcoming.
+    assert upcoming_terms(date(2026, 12, 1)) == {
+        ("spring", 2027), ("summer", 2027), ("fall", 2027), ("winter", 2027),
+    }
+
+
+def test_term_label_canonical():
+    assert term_label("summer", 2026) == "Summer 2026"
+    assert term_label("fall", 2027) == "Fall 2027"
+
+
+def test_in_window_term_labels_matches_upcoming():
+    assert in_window_term_labels(date(2026, 6, 16)) == {
+        "Fall 2026", "Winter 2026", "Spring 2027", "Summer 2027",
+    }
 
 
 def test_parse_term_basic():
