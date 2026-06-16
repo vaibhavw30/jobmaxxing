@@ -252,8 +252,11 @@ def create_app(conn_factory):
     Flask is imported here (lazily) so the module-level import of server.py
     does NOT require flask to be installed.
     """
+    from datetime import datetime, timezone
+
     from flask import Flask, jsonify, render_template_string, request
 
+    from ..normalize import in_window_term_labels
     from .triage import apply_decision, count_triage, fetch_triage_rows, reset_to_routed
 
     app = Flask(__name__)
@@ -287,9 +290,14 @@ def create_app(conn_factory):
         else:
             status = status_arg
 
+        # Upcoming-term window for this request — drives the date-aware demotion of off-window
+        # github rows (recomputed per request, so it auto-rolls with the calendar).
+        in_window = in_window_term_labels(datetime.now(timezone.utc).date())
+
         with conn_factory() as conn:
             rows = fetch_triage_rows(conn, status=status, statuses=statuses,
                                      resume_type=resume_type_arg, term=term_arg,
+                                     in_window_labels=in_window,
                                      sort=sort_arg, direction=dir_arg)
             total = count_triage(conn, status=status, statuses=statuses,
                                  resume_type=resume_type_arg, term=term_arg)

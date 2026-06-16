@@ -296,3 +296,21 @@ def test_term_preserved_in_sort_header_links(client, conn):
     _insert(conn, dedupe_key="s|p", term=["Summer 2026"])
     html = client.get("/?term=Summer+2026").get_data(as_text=True)
     assert "term=Summer+2026" in html  # sort links carry the active term filter
+
+
+def test_server_applies_current_upcoming_window(client, conn):
+    # Date-independent: compute a term that IS in the window right now (same fn the server uses),
+    # and one that is always off-window ('Summer 2016'). The in-window row must outrank the
+    # off-window one even though it's far older — proving the server computed + applied the current
+    # window (an empty/missing window would demote both, flipping the order to newest-first).
+    from datetime import datetime, timezone
+
+    from jobmaxxing.normalize import in_window_term_labels
+
+    current = sorted(in_window_term_labels(datetime.now(timezone.utc).date()))[0]
+    _insert(conn, dedupe_key="srv|cur", company="UpcomingCo", term=[current],
+            posted_at="2020-01-01", route_confidence=0.9)
+    _insert(conn, dedupe_key="srv|off", company="OffWindowCo", term=["Summer 2016"],
+            posted_at="2030-01-01", route_confidence=0.9)
+    html = client.get("/").get_data(as_text=True)
+    assert html.index("UpcomingCo") < html.index("OffWindowCo")
