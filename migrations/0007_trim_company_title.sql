@@ -8,8 +8,13 @@
 -- dirty rows, so after the first pass it updates zero rows (true no-op). It does
 -- NOT touch dedupe_key, which is already whitespace-insensitive (normalize_text
 -- strips before keying), so trimming the display fields cannot collide existing keys.
+--
+-- regexp_replace (not plain trim()) is used so the backfill matches the ingest
+-- path's Python str.strip(): SQL trim() removes only the ASCII space, while \s
+-- here covers space, tab, newline, CR, FF and VT — the same whitespace a stray
+-- tab/newline-wrapped scrape would carry.
 update jobs
-   set company = trim(company),
-       title   = trim(title)
- where company <> trim(company)
-    or title   <> trim(title);
+   set company = regexp_replace(company, '^\s+|\s+$', '', 'g'),
+       title   = regexp_replace(title,   '^\s+|\s+$', '', 'g')
+ where company <> regexp_replace(company, '^\s+|\s+$', '', 'g')
+    or title   <> regexp_replace(title,   '^\s+|\s+$', '', 'g');

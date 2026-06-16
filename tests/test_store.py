@@ -28,13 +28,18 @@ def test_apply_migrations_creates_jobs_table(conn):
 def test_migration_trims_existing_whitespace_company_and_title(conn):
     apply_migrations(conn)
     # Simulate legacy rows written before the trimming fix (raw insert bypasses
-    # JobRecord.__post_init__, which now strips at ingest).
+    # JobRecord.__post_init__, which now strips at ingest). Use tab/newline as well
+    # as spaces so the backfill matches the ingest path's .strip() (all whitespace).
     conn.execute(
         "insert into jobs (dedupe_key, source, company, title, url) values "
         "(%s, %s, %s, %s, %s)",
-        ("ccc|swe", "github:simplify", " CCC Intelligent Solutions", "SWE Intern ", "https://x"),
+        ("ccc|swe", "github:simplify", "\t CCC Intelligent Solutions", "SWE Intern \n", "https://x"),
     )
     # Re-running migrations applies the idempotent backfill.
+    apply_migrations(conn)
+    row = conn.execute("select company, title from jobs where dedupe_key = 'ccc|swe'").fetchone()
+    assert row == ("CCC Intelligent Solutions", "SWE Intern")
+    # Second run is a true no-op: the WHERE guard matches zero rows once clean.
     apply_migrations(conn)
     row = conn.execute("select company, title from jobs where dedupe_key = 'ccc|swe'").fetchone()
     assert row == ("CCC Intelligent Solutions", "SWE Intern")

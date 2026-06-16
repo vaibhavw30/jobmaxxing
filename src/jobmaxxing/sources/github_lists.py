@@ -4,6 +4,15 @@ from ..models import JobRecord
 from ..normalize import make_dedupe_key
 
 
+def _clean_str(value) -> str | None:
+    """A trimmed non-empty string, or None (non-strings become None). Mirrors the ATS
+    adapter so both sources reject blank/whitespace-only company/title the same way."""
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return None
+
+
 def parse_simplify_format(payload: list[dict], source: str) -> list[JobRecord]:
     """Parse a Simplify-format listings.json (Simplify / vanshb03 / pitt-csc forks).
 
@@ -17,8 +26,8 @@ def parse_simplify_format(payload: list[dict], source: str) -> list[JobRecord]:
     for entry in payload:
         if not isinstance(entry, dict):
             continue
-        company = entry.get("company_name")
-        title = entry.get("title")
+        company = _clean_str(entry.get("company_name"))
+        title = _clean_str(entry.get("title"))
         url = entry.get("url")
         if not company or not title or not url:
             continue

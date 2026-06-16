@@ -60,6 +60,16 @@ def test_parse_simplify_treats_null_active_as_active():
     assert rec.is_active is True
 
 
+def test_parse_simplify_skips_whitespace_only_company_or_title():
+    # Whitespace-only fields must be rejected, not stored as empty strings after
+    # JobRecord trims them (mirrors the ATS adapter's strip-then-reject behaviour).
+    payload = [
+        {"company_name": "   ", "title": "SWE", "url": "https://x"},
+        {"company_name": "Acme", "title": "\t\n", "url": "https://x"},
+    ]
+    assert parse_simplify_format(payload, source="github:simplify") == []
+
+
 def test_parse_simplify_stores_company_and_title_trimmed():
     payload = [{"company_name": " CCC Intelligent Solutions", "title": "SWE Intern ",
                 "url": "https://x"}]
