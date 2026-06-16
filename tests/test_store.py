@@ -59,6 +59,23 @@ def test_upsert_inserts_new_row(conn):
     assert row == ("Acme", "SWE Intern", "https://list/apply")
 
 
+def test_first_seen_at_set_on_insert_and_not_bumped_on_reingest(conn):
+    apply_migrations(conn)
+    upsert_jobs(conn, [_rec()])
+    first = conn.execute(
+        "select first_seen_at, scraped_at from jobs where dedupe_key='acme|swe intern'"
+    ).fetchone()
+    assert first[0] is not None
+    # A later poll re-ingests the same posting: the merge UPDATE bumps scraped_at (last-seen) but
+    # must leave first_seen_at untouched — that distinction is the whole reason the column exists.
+    upsert_jobs(conn, [_rec(description="now enriched")])
+    second = conn.execute(
+        "select first_seen_at, scraped_at from jobs where dedupe_key='acme|swe intern'"
+    ).fetchone()
+    assert second[0] == first[0]   # first_seen_at unchanged
+    assert second[1] >= first[1]   # scraped_at bumped on re-ingest
+
+
 def test_upsert_merges_duplicate_and_enriches(conn):
     apply_migrations(conn)
     upsert_jobs(conn, [_rec(source="github:simplify", url="https://list/apply", description=None)])
