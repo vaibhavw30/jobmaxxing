@@ -7,7 +7,7 @@ import psycopg
 from .config import load_settings, load_watchlist
 from .fetch import fetch_json
 from .models import JobRecord
-from .normalize import current_cycle_years
+from .normalize import upcoming_terms
 from .pipeline import ingest_records
 from .sources.ats import parse_ashby, parse_greenhouse, parse_lever
 from .sources.github_lists import parse_simplify_format
@@ -28,9 +28,9 @@ _ATS_PARSERS = {
 }
 
 
-def _github_list_source(source: str, url: str, allowed_years):
+def _github_list_source(source: str, url: str, allowed_terms):
     def fetch():
-        return parse_simplify_format(fetch_json(url), source=source, allowed_years=allowed_years)
+        return parse_simplify_format(fetch_json(url), source=source, allowed_terms=allowed_terms)
     return fetch
 
 
@@ -43,17 +43,17 @@ def _ats_source(company: str, ats: str, token: str):
 
 
 def build_sources(
-    watchlist: list[dict] | None = None, *, allowed_years: set[int] | None = None
+    watchlist: list[dict] | None = None, *, allowed_terms: set[tuple[str, int]] | None = None
 ) -> list[tuple[str, object]]:
     """Assemble (name, fetch_callable) pairs: the GitHub lists plus valid watchlist ATS
     entries. Malformed watchlist entries (not a mapping, missing keys, or unknown ATS)
     are skipped with a warning so one bad config line can never abort the whole run.
     `watchlist` is injectable for testing; defaults to load_watchlist().
-    ``allowed_years`` is forwarded to the Simplify-format parser to drop off-window
-    postings at ingest time; None keeps all postings (no filtering)."""
+    ``allowed_terms`` (a set of (season, year) pairs) is forwarded to the Simplify-format
+    parser to drop off-window postings at ingest time; None keeps all postings."""
     sources: list[tuple[str, object]] = []
     for source, url in GITHUB_LISTS:
-        sources.append((source, _github_list_source(source, url, allowed_years)))
+        sources.append((source, _github_list_source(source, url, allowed_terms)))
 
     entries = load_watchlist() if watchlist is None else watchlist
     for entry in entries:
@@ -103,9 +103,9 @@ def main() -> None:
     )
     settings = load_settings()
     now = datetime.now(timezone.utc)
-    allowed_years = current_cycle_years(now.date())
+    allowed_terms = upcoming_terms(now.date())
     with psycopg.connect(settings.database_url) as conn:
-        run_sources(conn, build_sources(allowed_years=allowed_years), now=now)
+        run_sources(conn, build_sources(allowed_terms=allowed_terms), now=now)
     # Per-source failures are isolated and logged, so a partial source failure still exits 0.
     # A DB/config error (bad DATABASE_URL, unreachable DB) is intentionally NOT swallowed:
     # it propagates and fails the run loudly, because that's an operator setup error, not a
