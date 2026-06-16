@@ -64,3 +64,23 @@ def test_build_sources_skips_malformed_watchlist_entries():
     assert "Acme:greenhouse:acme" in names
     assert not any(("NoToken" in n) or ("Bad" in n) for n in names)
     assert len(names) == 4  # 3 lists + 1 valid only
+
+
+def test_build_sources_threads_allowed_years_to_simplify(monkeypatch):
+    import jobmaxxing.run as run
+
+    captured = {}
+    monkeypatch.setattr(run, "fetch_json", lambda url: [])
+
+    def fake_parse(payload, source, allowed_years=None):
+        captured[source] = allowed_years
+        return []
+
+    monkeypatch.setattr(run, "parse_simplify_format", fake_parse)
+
+    sources = run.build_sources(watchlist=[], allowed_years={2026})
+    for _name, fetch in sources:
+        fetch()
+
+    assert captured  # the github sources ran
+    assert all(years == {2026} for years in captured.values())
