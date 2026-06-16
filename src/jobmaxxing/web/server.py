@@ -90,6 +90,15 @@ INDEX_HTML = """<!DOCTYPE html>
         {% endfor %}
       </select>
     </label>
+    <label>Term
+      <select name="term" onchange="this.form.submit()">
+        <option value="" {{ 'selected' if term_sel == '' else '' }}>all</option>
+        <option value="__untagged__" {{ 'selected' if term_sel == '__untagged__' else '' }}>untagged</option>
+        {% for t in term_options %}
+        <option value="{{ t }}" {{ 'selected' if t == term_sel else '' }}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </label>
   </form>
   <span class="count">showing {{ shown }} of {{ total }} matching{% if total > shown %} — narrow with a filter{% endif %}</span>
 </div>
@@ -107,6 +116,7 @@ INDEX_HTML = """<!DOCTYPE html>
     <td class="company">{{ row.company }}</td>
     <td class="title">{{ row.title }}</td>
     <td>{{ row.resume_type or '' }}</td>
+    <td>{{ row.term | join(', ') if row.term else '—' }}</td>
     <td class="conf">{{ '%.2f'|format(row.route_confidence) if row.route_confidence is not none else '—' }}</td>
     <td class="posted">{{ row.posted_at.strftime('%Y-%m-%d') if row.posted_at else '—' }}</td>
     <td>
@@ -131,7 +141,7 @@ INDEX_HTML = """<!DOCTYPE html>
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="9" style="text-align:center;padding:20px;color:#9ca3af;">No jobs to triage.</td></tr>
+  <tr><td colspan="10" style="text-align:center;padding:20px;color:#9ca3af;">No jobs to triage.</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -198,7 +208,7 @@ async function doReset(jobId, event) {
 """
 
 
-def _build_headers(active_sort, active_dir, status_sel, resume_type_sel):
+def _build_headers(active_sort, active_dir, status_sel, resume_type_sel, term_sel=""):
     """Ordered <th> descriptors. Sortable columns get an href that toggles direction and
     preserves active filters; non-sortable columns get href=None. Order matches the row cells."""
     from urllib.parse import urlencode
@@ -207,6 +217,8 @@ def _build_headers(active_sort, active_dir, status_sel, resume_type_sel):
         base["status"] = status_sel
     if resume_type_sel:
         base["resume_type"] = resume_type_sel
+    if term_sel:
+        base["term"] = term_sel
     sortable = {}
     for key, label, default_dir in _SORT_HEADERS:
         if active_sort == key:
@@ -217,8 +229,9 @@ def _build_headers(active_sort, active_dir, status_sel, resume_type_sel):
         sortable[key] = {"label": label,
                          "href": "/?" + urlencode({**base, "sort": key, "dir": new_dir}),
                          "arrow": arrow}
-    order = [("company", None), (None, "Title"), ("type", None), ("conf", None),
-             ("posted", None), (None, "Status"), (None, "JD"), (None, "Link"), (None, "Actions")]
+    order = [("company", None), (None, "Title"), ("type", None), (None, "Term"),
+             ("conf", None), ("posted", None), (None, "Status"), (None, "JD"),
+             (None, "Link"), (None, "Actions")]
     headers = []
     for key, plain_label in order:
         if key:
@@ -263,6 +276,7 @@ def create_app(conn_factory):
         resume_type_arg = request.args.get("resume_type") or None
         sort_arg = request.args.get("sort") or None
         dir_arg = request.args.get("dir") or None
+        term_arg = request.args.get("term") or None
 
         status = None
         statuses = None
@@ -275,21 +289,29 @@ def create_app(conn_factory):
 
         with conn_factory() as conn:
             rows = fetch_triage_rows(conn, status=status, statuses=statuses,
-                                     resume_type=resume_type_arg, sort=sort_arg, direction=dir_arg)
-            total = count_triage(conn, status=status, statuses=statuses, resume_type=resume_type_arg)
+                                     resume_type=resume_type_arg, term=term_arg,
+                                     sort=sort_arg, direction=dir_arg)
+            total = count_triage(conn, status=status, statuses=statuses,
+                                 resume_type=resume_type_arg, term=term_arg)
             cats = [r[0] for r in conn.execute(
                 "select distinct resume_type from jobs where resume_type is not null order by 1"
+            ).fetchall()]
+            term_opts = [r[0] for r in conn.execute(
+                "select distinct unnest(term) as t from jobs "
+                "where term is not null and cardinality(term) > 0 order by t"
             ).fetchall()]
 
         for row in rows:
             row["id"] = str(row["id"])
 
-        headers = _build_headers(sort_arg, dir_arg, status_arg, resume_type_arg or "")
+        headers = _build_headers(sort_arg, dir_arg, status_arg, resume_type_arg or "",
+                                 term_arg or "")
         return render_template_string(
             INDEX_HTML, rows=rows, headers=headers, total=total, shown=len(rows),
             status_options=_STATUS_OPTIONS, status_sel=status_arg,
             categories=cats, resume_type_sel=(resume_type_arg or ""),
             active_sort=(sort_arg or ""), active_dir=(dir_arg or ""),
+            term_options=term_opts, term_sel=(term_arg or ""),
         )
 
     @app.post("/decide")

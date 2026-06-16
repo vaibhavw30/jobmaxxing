@@ -30,12 +30,13 @@ def conn(postgresql):
 
 def _insert(conn, *, dedupe_key, resume_type="swe", status="routed", description="<p>jd</p>",
             company="Acme", title="SWE Intern", scraped_at=None, posted_at=None,
-            route_confidence=None, route_method=None):
+            route_confidence=None, route_method=None, source="github:simplify", term=None):
     cols = ["dedupe_key", "source", "company", "title", "url", "description", "resume_type", "status"]
-    vals = [dedupe_key, "github:simplify", company, title, f"https://x/{dedupe_key}",
+    vals = [dedupe_key, source, company, title, f"https://x/{dedupe_key}",
             description, resume_type, status]
     for name, value in (("scraped_at", scraped_at), ("posted_at", posted_at),
-                        ("route_confidence", route_confidence), ("route_method", route_method)):
+                        ("route_confidence", route_confidence), ("route_method", route_method),
+                        ("term", term)):
         if value is not None:
             cols.append(name)
             vals.append(value)
@@ -265,3 +266,33 @@ def test_status_options_cover_valid_statuses_no_drift(client, conn):
     from jobmaxxing.web.server import _STATUS_OPTIONS
     # _STATUS_OPTIONS = ["undecided", "all", <the funnel statuses...>]
     assert set(_STATUS_OPTIONS[2:]) == VALID_STATUSES
+
+
+def test_term_column_rendered(client, conn):
+    _insert(conn, dedupe_key="s|tag", term=["Summer 2026", "Fall 2026"])
+    _insert(conn, dedupe_key="s|untag", term=[])
+    html = client.get("/").get_data(as_text=True)
+    assert "Summer 2026, Fall 2026" in html  # array joined in the cell
+    assert ">Term<" in html                  # column header present
+
+
+def test_term_dropdown_lists_distinct_terms_plus_untagged(client, conn):
+    _insert(conn, dedupe_key="s|s", term=["Summer 2026"])
+    _insert(conn, dedupe_key="s|f", term=["Fall 2026"])
+    html = client.get("/").get_data(as_text=True)
+    assert 'name="term"' in html
+    assert ">Summer 2026<" in html and ">Fall 2026<" in html
+    assert 'value="__untagged__"' in html
+
+
+def test_term_filter_applied(client, conn):
+    _insert(conn, dedupe_key="s|s2", term=["Summer 2026"], company="SummerCo")
+    _insert(conn, dedupe_key="s|f2", term=["Fall 2026"], company="FallCo")
+    html = client.get("/?term=Fall+2026").get_data(as_text=True)
+    assert "FallCo" in html and "SummerCo" not in html
+
+
+def test_term_preserved_in_sort_header_links(client, conn):
+    _insert(conn, dedupe_key="s|p", term=["Summer 2026"])
+    html = client.get("/?term=Summer+2026").get_data(as_text=True)
+    assert "term=Summer+2026" in html  # sort links carry the active term filter
