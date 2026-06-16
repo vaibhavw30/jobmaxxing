@@ -21,6 +21,7 @@ def merge_records(existing: JobRecord, incoming: JobRecord) -> JobRecord:
     - alt_urls: every other url seen, order-preserving dedup, excluding the canonical url.
     - is_active: from incoming (the most recent observation).
     - dedupe_key: preserved from existing, falling back to incoming.
+    - term: primary's value, else secondary's (None-aware fill; preserves an empty-list marker).
 
     Note: posted_at is taken from primary, so an ATS promotion refreshes the date, but a
     non-primary record never overwrites the primary's date (conservative — avoids a
@@ -49,4 +50,7 @@ def merge_records(existing: JobRecord, incoming: JobRecord) -> JobRecord:
         is_active=incoming.is_active,
         alt_urls=alt_urls,
         dedupe_key=existing.dedupe_key or incoming.dedupe_key,
+        # term: primary's value, else secondary's. None-aware (not `or`) so an empty list — a real
+        # "processed untagged" marker — is preserved, and a legacy NULL gets the fresh term.
+        term=primary.term if primary.term is not None else secondary.term,
     )

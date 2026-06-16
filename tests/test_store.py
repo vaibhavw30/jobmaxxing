@@ -167,3 +167,11 @@ def test_term_empty_list_and_null_persist_distinctly(conn):
     got = dict(conn.execute("select dedupe_key, term from jobs").fetchall())
     assert got["a|1"] == []
     assert got["a|2"] is None
+
+
+def test_reingest_tags_legacy_null_term_row(conn):
+    apply_migrations(conn)
+    upsert_jobs(conn, [_rec(term=None)])             # legacy row, no term
+    upsert_jobs(conn, [_rec(term=["Summer 2026"])])  # re-seen with a term -> tagged via merge
+    row = conn.execute("select term from jobs where dedupe_key='acme|swe intern'").fetchone()
+    assert row[0] == ["Summer 2026"]

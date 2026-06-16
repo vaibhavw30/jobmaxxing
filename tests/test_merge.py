@@ -106,3 +106,25 @@ def test_merge_refreshes_posted_at_from_ats_on_promotion():
     incoming = _rec(source="greenhouse", url="https://boards.greenhouse.io/acme/jobs/1", posted_at=new)
     merged = merge_records(existing, incoming)
     assert merged.posted_at == new
+
+
+def test_merge_keeps_primary_term():
+    existing = _rec(term=["Summer 2026"])
+    incoming = _rec(source="github:vanshb03", url="https://other", term=["Fall 2026"])
+    merged = merge_records(existing, incoming)
+    assert merged.term == ["Summer 2026"]  # existing stays primary (neither is ATS)
+
+
+def test_merge_fills_term_from_secondary_when_primary_none():
+    existing = _rec(term=None)
+    incoming = _rec(source="github:vanshb03", url="https://other", term=["Summer 2026"])
+    merged = merge_records(existing, incoming)
+    assert merged.term == ["Summer 2026"]
+
+
+def test_merge_preserves_empty_term_not_truthiness():
+    # [] is a real "processed untagged" value, NOT missing -> must not fall through to secondary.
+    existing = _rec(term=[])
+    incoming = _rec(source="github:vanshb03", url="https://other", term=["Summer 2026"])
+    merged = merge_records(existing, incoming)
+    assert merged.term == []
