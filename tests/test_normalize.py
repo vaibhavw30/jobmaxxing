@@ -99,7 +99,7 @@ def test_age_cutoff_coerces_naive_now_as_utc():
 
 
 # ---------------------------------------------------------------------------
-# current_cycle_years + parse_term
+# upcoming_terms / term_label / parse_term
 # ---------------------------------------------------------------------------
 
 
