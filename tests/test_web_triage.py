@@ -397,3 +397,14 @@ def test_term_filter_composes_with_count(conn):
     _insert(conn, dedupe_key="t|s2", term=["Summer 2026"])
     _insert(conn, dedupe_key="t|f2", term=["Fall 2026"])
     assert count_triage(conn, term="Fall 2026") == 1
+
+
+def test_untagged_empty_term_not_demoted(conn):
+    # Only term IS NULL (legacy) is demoted; a processed-untagged github row ([]) stays in the
+    # normal tier, so it outranks an (even newer) legacy NULL row by the default recency order.
+    legacy = _insert(conn, dedupe_key="u|leg", term=None,
+                     posted_at="2026-06-01", route_confidence=0.9)
+    untagged = _insert(conn, dedupe_key="u|emp", term=[],
+                       posted_at="2026-01-01", route_confidence=0.9)
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn)]
+    assert ids.index(untagged) < ids.index(legacy)

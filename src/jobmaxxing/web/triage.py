@@ -68,6 +68,8 @@ def _build_where(status, statuses, resume_type, term=None):
         if term == "__untagged__":
             clauses.append("(term is not null and cardinality(term) = 0)")
         else:
+            # Exact match against a stored term. Safe because the dropdown is populated from
+            # `distinct unnest(term)`, so the value always matches a stored string verbatim.
             clauses.append("%s = any(term)")
             params.append(term)
     return " and ".join(clauses), params
