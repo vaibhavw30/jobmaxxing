@@ -7,7 +7,7 @@ from ..funnel import TRIAGE_COLUMNS, decision_to_status, plain_text
 
 # Columns rendered by the web table: the canonical funnel set plus route_confidence
 # (a display/relevance signal not part of the Sheets-facing TRIAGE_COLUMNS).
-_DISPLAY_COLS = (*TRIAGE_COLUMNS, "route_confidence")
+_DISPLAY_COLS = (*TRIAGE_COLUMNS, "route_confidence", "term")
 
 # DEFAULT_LIMIT == MAX_LIMIT by design: the table renders up to the cap in one page
 # (no pagination yet); the "showing N of M" indicator surfaces any truncation.
@@ -29,19 +29,25 @@ _SORTS = {
 }
 
 
+# Legacy/off-window github rows (term not yet assigned) sink below everything in EVERY sort —
+# hiding them is a visibility rule, not a sort column. ATS rows (term NULL by nature) are exempt
+# via the source guard. Fixed string -> no SQL injection.
+_DEMOTE = "(source like 'github:%%' and term is null) asc"
+
+
 def _order_by(sort, direction):
-    """Build an ORDER BY from the whitelist. Unknown sort -> the 'recent + relevant' default."""
+    """Build an ORDER BY from the whitelist. Unknown sort -> the 'recent + relevant' default.
+    Every ordering is prefixed with _DEMOTE so legacy/off-window github rows stay at the bottom."""
     if sort in _SORTS:
         expr, default_dir, secondary = _SORTS[sort]
         d = direction if direction in ("asc", "desc") else default_dir
-        return f"order by {expr} {d}{secondary}, id asc"
-    # Default: high-confidence tier first, newest posting first within it.
-    # RELEVANCE_FLOOR is a trusted constant, formatted as a literal (not user input).
-    return (f"order by (coalesce(route_confidence, 1.0) < {RELEVANCE_FLOOR}) asc,"
+        return f"order by {_DEMOTE}, {expr} {d}{secondary}, id asc"
+    return (f"order by {_DEMOTE},"
+            f" (coalesce(route_confidence, 1.0) < {RELEVANCE_FLOOR}) asc,"
             f" posted_at desc nulls last, id asc")
 
 
-def _build_where(status, statuses, resume_type):
+def _build_where(status, statuses, resume_type, term=None):
     """Build the shared WHERE clause + params for fetch/count. Routed jobs only."""
     clauses = ["resume_type is not null"]
     params: list = []
@@ -58,18 +64,24 @@ def _build_where(status, statuses, resume_type):
     if resume_type is not None:
         clauses.append("resume_type = %s")
         params.append(resume_type)
+    if term is not None:
+        if term == "__untagged__":
+            clauses.append("(term is not null and cardinality(term) = 0)")
+        else:
+            clauses.append("%s = any(term)")
+            params.append(term)
     return " and ".join(clauses), params
 
 
-def fetch_triage_rows(conn, *, status=None, statuses=None, resume_type=None,
+def fetch_triage_rows(conn, *, status=None, statuses=None, resume_type=None, term=None,
                       sort=None, direction=None, limit=DEFAULT_LIMIT) -> list[dict]:
     """Return routed jobs (resume_type IS NOT NULL) as a list of column-keyed dicts.
 
-    Filters: status= (single), statuses= (IN list; precedence over status=), resume_type=.
+    Filters: status= (single), statuses= (IN list; precedence over status=), resume_type=, term=.
     Sorting via the _order_by whitelist (default: recent + relevant). description is plain text.
     Capped at MAX_LIMIT rows.
     """
-    where, params = _build_where(status, statuses, resume_type)
+    where, params = _build_where(status, statuses, resume_type, term)
     order = _order_by(sort, direction)
     capped = max(1, min(int(limit), MAX_LIMIT))
     sql = f"select {', '.join(_DISPLAY_COLS)} from jobs where {where} {order} limit %s"
@@ -83,9 +95,9 @@ def fetch_triage_rows(conn, *, status=None, statuses=None, resume_type=None,
     return result
 
 
-def count_triage(conn, *, status=None, statuses=None, resume_type=None) -> int:
+def count_triage(conn, *, status=None, statuses=None, resume_type=None, term=None) -> int:
     """Total rows matching the same filters as fetch_triage_rows, ignoring sort/limit."""
-    where, params = _build_where(status, statuses, resume_type)
+    where, params = _build_where(status, statuses, resume_type, term)
     return conn.execute(f"select count(*) from jobs where {where}", params).fetchone()[0]
 
 

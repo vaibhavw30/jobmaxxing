@@ -25,12 +25,13 @@ def conn(postgresql):
 
 def _insert(conn, *, dedupe_key, resume_type="swe", status="routed", description="<p>jd</p>",
             company="Acme", title="SWE Intern", scraped_at=None, posted_at=None,
-            route_confidence=None, route_method=None):
+            route_confidence=None, route_method=None, source="github:simplify", term=None):
     cols = ["dedupe_key", "source", "company", "title", "url", "description", "resume_type", "status"]
-    vals = [dedupe_key, "github:simplify", company, title, f"https://x/{dedupe_key}",
+    vals = [dedupe_key, source, company, title, f"https://x/{dedupe_key}",
             description, resume_type, status]
     for name, value in (("scraped_at", scraped_at), ("posted_at", posted_at),
-                        ("route_confidence", route_confidence), ("route_method", route_method)):
+                        ("route_confidence", route_confidence), ("route_method", route_method),
+                        ("term", term)):
         if value is not None:
             cols.append(name)
             vals.append(value)
@@ -344,3 +345,55 @@ def test_sort_unknown_key_falls_back_to_default(conn):
                   route_confidence=0.9)
     ids = [str(r["id"]) for r in fetch_triage_rows(conn, sort="company); drop table jobs--", direction="x")]
     assert ids.index(new) < ids.index(old)
+
+
+# ---------------------------------------------------------------------------
+# Task 7: Legacy github row demotion + term filter tests
+# ---------------------------------------------------------------------------
+
+
+def test_legacy_github_rows_demoted(conn):
+    older_tagged = _insert(conn, dedupe_key="d|tag", term=["Summer 2026"],
+                           posted_at="2026-01-01", route_confidence=0.9)
+    newer_legacy = _insert(conn, dedupe_key="d|leg", term=None,
+                           posted_at="2026-06-01", route_confidence=0.9)
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn)]
+    assert ids.index(older_tagged) < ids.index(newer_legacy)  # legacy sinks despite being newer
+
+
+def test_ats_null_term_not_demoted_but_github_null_is(conn):
+    ats = _insert(conn, dedupe_key="d|ats", source="greenhouse", term=None,
+                  posted_at="2026-03-01", route_confidence=0.9)
+    gh_legacy = _insert(conn, dedupe_key="d|ghleg", source="github:simplify", term=None,
+                        posted_at="2026-03-01", route_confidence=0.9)
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn)]
+    assert ids.index(ats) < ids.index(gh_legacy)  # source guard: only github-null demoted
+
+
+def test_demotion_applies_to_all_sorts(conn):
+    a_legacy = _insert(conn, dedupe_key="d|a", company="Aardvark", term=None)
+    z_tagged = _insert(conn, dedupe_key="d|z", company="Zzz", term=["Summer 2026"])
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn, sort="company", direction="asc")]
+    assert ids.index(z_tagged) < ids.index(a_legacy)  # Zzz(tagged) before Aardvark(legacy)
+
+
+def test_filter_by_term_matches_multi_term(conn):
+    summer = _insert(conn, dedupe_key="t|s", term=["Summer 2026"])
+    coop = _insert(conn, dedupe_key="t|c", term=["Fall 2026", "Spring 2026"])
+    fall = _insert(conn, dedupe_key="t|f", term=["Fall 2026"])
+    ids = {str(r["id"]) for r in fetch_triage_rows(conn, term="Fall 2026")}
+    assert ids == {coop, fall}  # summer-only excluded; the multi-term co-op is included
+
+
+def test_filter_untagged_matches_empty_array_only(conn):
+    _insert(conn, dedupe_key="t|tag", term=["Summer 2026"])
+    untagged = _insert(conn, dedupe_key="t|na", term=[])
+    _insert(conn, dedupe_key="t|leg", term=None)
+    ids = {str(r["id"]) for r in fetch_triage_rows(conn, term="__untagged__")}
+    assert ids == {untagged}  # cardinality-0 only; NULL legacy excluded
+
+
+def test_term_filter_composes_with_count(conn):
+    _insert(conn, dedupe_key="t|s2", term=["Summer 2026"])
+    _insert(conn, dedupe_key="t|f2", term=["Fall 2026"])
+    assert count_triage(conn, term="Fall 2026") == 1
