@@ -196,3 +196,30 @@ Isolated git worktree off `main` (`worktree-term-window-filtering`); subagent-dr
 (failing test → minimal impl → green → small commit); two-stage review (spec compliance → code
 quality); merge to `main`. Run `export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"` before pytest
 (`uv run pytest`).
+
+---
+
+## Amendment (2026-06-16): forward-looking window + date-aware demotion
+
+The original window keyed on the **current calendar year** (`current_cycle_years`), which kept terms
+that are already past or underway (e.g. as of June 2026 it kept Spring 2026 and the in-progress
+Summer 2026). The operator actually wants **upcoming** terms — what you can still apply to. Two changes:
+
+1. **`normalize.upcoming_terms(today)`** replaces `current_cycle_years`. A term is in-window if its
+   season **starts after** `today` and within `TERM_HORIZON_MONTHS` (12). Season starts ≈ Spring→Jan,
+   Summer→May, Fall→Sep, Winter→Dec. As of June 2026 → **{Fall 2026, Winter 2026, Spring 2027,
+   Summer 2027}**; Summer/Spring 2026 (started/past) drop, Fall 2027+ is too far ahead. Auto-rolls,
+   no bumping. The ingest filter now matches on **(season, year)** (`allowed_terms`), not year, and
+   stores terms **canonically** (`term_label` → "Season YYYY") so they compare cleanly. Threaded
+   `run.main → build_sources(allowed_terms=…) → parser`.
+
+2. **Date-aware triage demotion** (`web/triage._demote_clause`, fed `in_window_term_labels(today)`
+   from `server.index`). A github row sinks when it's legacy (`term IS NULL`) **or** tagged with
+   terms that no longer overlap the *current* window — so a row tagged with a now-past term sinks
+   automatically, with **no re-ingest or cleanup needed**. Untagged (`'{}'`) and ATS rows stay exempt.
+   This is what makes the window truly auto-rolling: when a season starts, its postings sink on the
+   next page load. The in-window labels are built from a fixed season set + integer years and inlined
+   as a SQL array literal (injection-safe).
+
+The previous `term IS NULL`-only demotion couldn't express "tagged but now off-window," so it would
+have re-surfaced this same class of bug every season boundary; the date-aware version fixes it durably.
