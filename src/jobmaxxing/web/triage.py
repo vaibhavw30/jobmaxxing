@@ -29,20 +29,30 @@ _SORTS = {
 }
 
 
-# Legacy/off-window github rows (term not yet assigned) sink below everything in EVERY sort —
-# hiding them is a visibility rule, not a sort column. ATS rows (term NULL by nature) are exempt
-# via the source guard. Fixed string -> no SQL injection.
-_DEMOTE = "(source like 'github:%%' and term is null) asc"
+def _demote_clause(in_window_labels) -> str:
+    """ORDER BY key that sinks off-window github rows below everything in EVERY sort — hiding them
+    is a visibility rule, not a sort column. A github row is demoted when it's legacy (term IS NULL)
+    OR tagged with terms that no longer overlap the current upcoming window. Untagged kept rows
+    (term '{}') and ATS rows (non-github) are exempt. Date-aware: the window is recomputed per
+    request, so a row tagged with a now-past term sinks automatically (no re-ingest needed).
+
+    ``in_window_labels`` are canonical "Season YYYY" strings built from a fixed season set + integer
+    years (``normalize.in_window_term_labels``) — no user input, so inlining them as a SQL array
+    literal is injection-safe."""
+    arr = "array[" + ", ".join("'" + lbl + "'" for lbl in sorted(in_window_labels)) + "]::text[]"
+    return (f"(source like 'github:%%' and (term is null or "
+            f"(cardinality(term) > 0 and not (term && {arr})))) asc")
 
 
-def _order_by(sort, direction):
+def _order_by(sort, direction, in_window_labels):
     """Build an ORDER BY from the whitelist. Unknown sort -> the 'recent + relevant' default.
-    Every ordering is prefixed with _DEMOTE so legacy/off-window github rows stay at the bottom."""
+    Every ordering is prefixed with the demotion key so off-window github rows stay at the bottom."""
+    demote = _demote_clause(in_window_labels)
     if sort in _SORTS:
         expr, default_dir, secondary = _SORTS[sort]
         d = direction if direction in ("asc", "desc") else default_dir
-        return f"order by {_DEMOTE}, {expr} {d}{secondary}, id asc"
-    return (f"order by {_DEMOTE},"
+        return f"order by {demote}, {expr} {d}{secondary}, id asc"
+    return (f"order by {demote},"
             f" (coalesce(route_confidence, 1.0) < {RELEVANCE_FLOOR}) asc,"
             f" posted_at desc nulls last, id asc")
 
@@ -76,15 +86,17 @@ def _build_where(status, statuses, resume_type, term=None):
 
 
 def fetch_triage_rows(conn, *, status=None, statuses=None, resume_type=None, term=None,
-                      sort=None, direction=None, limit=DEFAULT_LIMIT) -> list[dict]:
+                      in_window_labels=(), sort=None, direction=None,
+                      limit=DEFAULT_LIMIT) -> list[dict]:
     """Return routed jobs (resume_type IS NOT NULL) as a list of column-keyed dicts.
 
     Filters: status= (single), statuses= (IN list; precedence over status=), resume_type=, term=.
-    Sorting via the _order_by whitelist (default: recent + relevant). description is plain text.
-    Capped at MAX_LIMIT rows.
+    ``in_window_labels`` (canonical "Season YYYY" strings for the current upcoming window) drives
+    the date-aware demotion of off-window github rows. Sorting via the _order_by whitelist (default:
+    recent + relevant). description is plain text. Capped at MAX_LIMIT rows.
     """
     where, params = _build_where(status, statuses, resume_type, term)
-    order = _order_by(sort, direction)
+    order = _order_by(sort, direction, in_window_labels)
     capped = max(1, min(int(limit), MAX_LIMIT))
     sql = f"select {', '.join(_DISPLAY_COLS)} from jobs where {where} {order} limit %s"
     rows = conn.execute(sql, params + [capped]).fetchall()

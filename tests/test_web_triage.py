@@ -352,29 +352,50 @@ def test_sort_unknown_key_falls_back_to_default(conn):
 # ---------------------------------------------------------------------------
 
 
-def test_legacy_github_rows_demoted(conn):
-    older_tagged = _insert(conn, dedupe_key="d|tag", term=["Summer 2026"],
-                           posted_at="2026-01-01", route_confidence=0.9)
-    newer_legacy = _insert(conn, dedupe_key="d|leg", term=None,
-                           posted_at="2026-06-01", route_confidence=0.9)
-    ids = [str(r["id"]) for r in fetch_triage_rows(conn)]
-    assert ids.index(older_tagged) < ids.index(newer_legacy)  # legacy sinks despite being newer
+# A representative "current upcoming window" (canonical labels) for demotion tests.
+_WIN = ["Summer 2026", "Fall 2026"]
 
 
-def test_ats_null_term_not_demoted_but_github_null_is(conn):
-    ats = _insert(conn, dedupe_key="d|ats", source="greenhouse", term=None,
+def test_legacy_null_term_github_row_demoted(conn):
+    in_win = _insert(conn, dedupe_key="d|in", term=["Summer 2026"],
+                     posted_at="2026-01-01", route_confidence=0.9)
+    legacy = _insert(conn, dedupe_key="d|leg", term=None,
+                     posted_at="2026-06-01", route_confidence=0.9)
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn, in_window_labels=_WIN)]
+    assert ids.index(in_win) < ids.index(legacy)  # NULL legacy sinks despite being newer
+
+
+def test_off_window_tagged_row_demoted(conn):
+    # The date-aware part: a row tagged with a term that's no longer in the window sinks, even
+    # though it's newer and tagged — stale tags don't keep a row afloat.
+    in_win = _insert(conn, dedupe_key="o|in", term=["Fall 2026"],
+                     posted_at="2026-01-01", route_confidence=0.9)
+    off = _insert(conn, dedupe_key="o|off", term=["Spring 2026"],
+                  posted_at="2026-06-01", route_confidence=0.9)
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn, in_window_labels=_WIN)]
+    assert ids.index(in_win) < ids.index(off)  # Spring 2026 off-window -> demoted
+
+
+def test_ats_and_untagged_rows_not_demoted(conn):
+    # ATS rows (non-github, term NULL) and untagged github rows (term '{}') are exempt; only a
+    # github row that is legacy/off-window sinks.
+    ats = _insert(conn, dedupe_key="x|ats", source="greenhouse", term=None,
                   posted_at="2026-03-01", route_confidence=0.9)
-    gh_legacy = _insert(conn, dedupe_key="d|ghleg", source="github:simplify", term=None,
+    untagged = _insert(conn, dedupe_key="x|unt", term=[],
+                       posted_at="2026-03-01", route_confidence=0.9)
+    gh_legacy = _insert(conn, dedupe_key="x|leg", term=None,
                         posted_at="2026-03-01", route_confidence=0.9)
-    ids = [str(r["id"]) for r in fetch_triage_rows(conn)]
-    assert ids.index(ats) < ids.index(gh_legacy)  # source guard: only github-null demoted
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn, in_window_labels=_WIN)]
+    assert ids.index(ats) < ids.index(gh_legacy)
+    assert ids.index(untagged) < ids.index(gh_legacy)
 
 
 def test_demotion_applies_to_all_sorts(conn):
-    a_legacy = _insert(conn, dedupe_key="d|a", company="Aardvark", term=None)
-    z_tagged = _insert(conn, dedupe_key="d|z", company="Zzz", term=["Summer 2026"])
-    ids = [str(r["id"]) for r in fetch_triage_rows(conn, sort="company", direction="asc")]
-    assert ids.index(z_tagged) < ids.index(a_legacy)  # Zzz(tagged) before Aardvark(legacy)
+    a_off = _insert(conn, dedupe_key="d|a", company="Aardvark", term=["Spring 2026"])
+    z_in = _insert(conn, dedupe_key="d|z", company="Zzz", term=["Summer 2026"])
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn, sort="company", direction="asc",
+                                                   in_window_labels=_WIN)]
+    assert ids.index(z_in) < ids.index(a_off)  # Zzz(in-window) before Aardvark(off-window)
 
 
 def test_filter_by_term_matches_multi_term(conn):
