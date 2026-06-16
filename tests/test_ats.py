@@ -111,6 +111,15 @@ def test_ashby_accepts_results_key():
     assert len(recs) == 1 and recs[0].title == "T"
 
 
+def test_ats_parsers_store_company_trimmed():
+    # Live data has shown leading-space company values (e.g. " MAG Aerospace").
+    gh = parse_greenhouse(
+        {"jobs": [{"id": 1, "title": "T", "absolute_url": "https://u"}]},
+        company=" MAG Aerospace ",
+    )[0]
+    assert gh.company == "MAG Aerospace"
+
+
 def test_lever_and_ashby_set_company_and_active():
     lev = parse_lever([{"id": "x", "text": "T", "hostedUrl": "https://u"}], company="Acme")[0]
     assert lev.company == "Acme" and lev.is_active is True

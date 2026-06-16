@@ -60,6 +60,14 @@ def test_parse_simplify_treats_null_active_as_active():
     assert rec.is_active is True
 
 
+def test_parse_simplify_stores_company_and_title_trimmed():
+    payload = [{"company_name": " CCC Intelligent Solutions", "title": "SWE Intern ",
+                "url": "https://x"}]
+    rec = parse_simplify_format(payload, source="github:simplify")[0]
+    assert rec.company == "CCC Intelligent Solutions"
+    assert rec.title == "SWE Intern"
+
+
 def test_parse_simplify_threads_source_label_for_each_fork():
     payload = [{"company_name": "Acme", "title": "SWE", "url": "https://x"}]
     for label in ("github:simplify", "github:vanshb03", "github:pitt-csc"):

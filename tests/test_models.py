@@ -11,6 +11,17 @@ def test_jobrecord_defaults():
     assert rec.dedupe_key == ""
 
 
+def test_jobrecord_strips_surrounding_whitespace_from_company_and_title():
+    rec = JobRecord(
+        source="github:simplify",
+        company="  CCC Intelligent Solutions ",
+        title="\tSoftware Engineer Intern\n",
+        url="https://x/y",
+    )
+    assert rec.company == "CCC Intelligent Solutions"
+    assert rec.title == "Software Engineer Intern"
+
+
 def test_jobrecord_accepts_all_fields():
     rec = JobRecord(
         source="greenhouse",
