@@ -4,6 +4,7 @@ No Flask import. Takes a live psycopg conn as a parameter.
 """
 
 from ..funnel import TRIAGE_COLUMNS, decision_to_status, plain_text
+from ..normalize import off_window_sql
 
 # Columns rendered by the web table: the canonical funnel set plus route_confidence
 # (a display/relevance signal not part of the Sheets-facing TRIAGE_COLUMNS).
@@ -31,17 +32,10 @@ _SORTS = {
 
 def _demote_clause(in_window_labels) -> str:
     """ORDER BY key that sinks off-window github rows below everything in EVERY sort — hiding them
-    is a visibility rule, not a sort column. A github row is demoted when it's legacy (term IS NULL)
-    OR tagged with terms that no longer overlap the current upcoming window. Untagged kept rows
-    (term '{}') and ATS rows (non-github) are exempt. Date-aware: the window is recomputed per
-    request, so a row tagged with a now-past term sinks automatically (no re-ingest needed).
-
-    ``in_window_labels`` are canonical "Season YYYY" strings built from a fixed season set + integer
-    years (``normalize.in_window_term_labels``) — no user input, so inlining them as a SQL array
-    literal is injection-safe."""
-    arr = "array[" + ", ".join("'" + lbl + "'" for lbl in sorted(in_window_labels)) + "]::text[]"
-    return (f"(source like 'github:%%' and (term is null or "
-            f"(cardinality(term) > 0 and not (term && {arr})))) asc")
+    is a visibility rule, not a sort column. Date-aware: the window is recomputed per request, so a
+    row tagged with a now-past term sinks automatically (no re-ingest needed). The off-window
+    predicate is shared with the digest via ``normalize.off_window_sql`` so the two never drift."""
+    return f"({off_window_sql(in_window_labels)}) asc"
 
 
 def _order_by(sort, direction, in_window_labels):

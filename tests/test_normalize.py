@@ -6,6 +6,7 @@ from jobmaxxing.normalize import (
     in_window_term_labels,
     make_dedupe_key,
     normalize_text,
+    off_window_sql,
     parse_term,
     term_label,
     upcoming_terms,
@@ -134,6 +135,18 @@ def test_in_window_term_labels_matches_upcoming():
     assert in_window_term_labels(date(2026, 6, 16)) == {
         "Fall 2026", "Winter 2026", "Spring 2027", "Summer 2027",
     }
+
+
+def test_off_window_sql_inlines_sorted_window_array():
+    sql = off_window_sql(["Summer 2027", "Fall 2026"])
+    assert "split_part(source, ':', 1) = 'github'" in sql
+    assert "term is null" in sql
+    assert "cardinality(term) > 0 and not (term && array['Fall 2026', 'Summer 2027']::text[])" in sql
+    assert "%" not in sql   # no LIKE wildcard -> safe with or without query params
+
+
+def test_off_window_sql_empty_window_is_valid_array():
+    assert "array[]::text[]" in off_window_sql([])
 
 
 def test_parse_term_basic():

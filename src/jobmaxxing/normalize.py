@@ -56,6 +56,21 @@ def in_window_term_labels(today: date) -> set[str]:
     return {term_label(season, year) for season, year in upcoming_terms(today)}
 
 
+def off_window_sql(in_window_labels) -> str:
+    """SQL boolean fragment: TRUE for github rows that are OFF the current upcoming window — legacy
+    (``term IS NULL``) or tagged with terms that no longer overlap the window. Untagged rows
+    (``term = '{}'``) and non-github (ATS) rows are FALSE (kept). Shared by triage's demotion
+    (sinks these to the bottom) and the digest's visibility filter (excludes these) so they agree.
+
+    ``in_window_labels`` are canonical "Season YYYY" strings built from a fixed season set + integer
+    years (``in_window_term_labels``) — no user input, so inlining them as a SQL array literal is
+    injection-safe. Uses ``split_part(source, ':', 1) = 'github'`` (no ``%`` wildcard) so the fragment
+    is safe whether or not the surrounding query passes parameters."""
+    arr = "array[" + ", ".join("'" + lbl + "'" for lbl in sorted(in_window_labels)) + "]::text[]"
+    return (f"split_part(source, ':', 1) = 'github' and (term is null or "
+            f"(cardinality(term) > 0 and not (term && {arr})))")
+
+
 def parse_term(value) -> tuple[str, int] | None:
     """Parse a Simplify ``terms`` entry like 'Summer 2026' -> ('summer', 2026).
 
