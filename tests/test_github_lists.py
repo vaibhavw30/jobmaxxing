@@ -91,42 +91,44 @@ def _entry(**kw):
 
 
 def test_keeps_and_tags_in_window_term():
-    rec = parse_simplify_format([_entry(terms=["Summer 2026"])],
-                                source="github:simplify", allowed_years={2026})[0]
-    assert rec.term == ["Summer 2026"]
+    rec = parse_simplify_format([_entry(terms=["Summer 2027"])],
+                                source="github:simplify", allowed_terms={("summer", 2027)})[0]
+    assert rec.term == ["Summer 2027"]
 
 
 def test_keeps_multi_term_excludes_off_window_member():
-    rec = parse_simplify_format([_entry(terms=["Fall 2026", "Summer 2027", "Spring 2026"])],
-                                source="github:simplify", allowed_years={2026})[0]
-    assert rec.term == ["Fall 2026", "Spring 2026"]  # 2027 dropped from the stored list
+    rec = parse_simplify_format([_entry(terms=["Fall 2026", "Summer 2026", "Spring 2027"])],
+                                source="github:simplify",
+                                allowed_terms={("fall", 2026), ("spring", 2027)})[0]
+    assert rec.term == ["Fall 2026", "Spring 2027"]  # Summer 2026 (off-window) excluded
 
 
 def test_drops_purely_off_window():
-    assert parse_simplify_format([_entry(terms=["Summer 2027"])],
-                                 source="github:simplify", allowed_years={2026}) == []
+    win = {("fall", 2026), ("spring", 2027)}
+    assert parse_simplify_format([_entry(terms=["Summer 2026"])],
+                                 source="github:simplify", allowed_terms=win) == []
     assert parse_simplify_format([_entry(terms=["Winter 2025"])],
-                                 source="github:simplify", allowed_years={2026}) == []
+                                 source="github:simplify", allowed_terms=win) == []
 
 
 def test_keeps_untagged_with_empty_term():
     for terms in (None, [], ["N/A"], ["totally bogus"]):
         recs = parse_simplify_format([_entry(terms=terms)],
-                                     source="github:simplify", allowed_years={2026})
+                                     source="github:simplify", allowed_terms={("fall", 2026)})
         assert len(recs) == 1 and recs[0].term == []
 
 
 def test_drops_mixed_real_offwindow_plus_na():
-    assert parse_simplify_format([_entry(terms=["Summer 2027", "N/A"])],
-                                 source="github:simplify", allowed_years={2026}) == []
+    assert parse_simplify_format([_entry(terms=["Summer 2026", "N/A"])],
+                                 source="github:simplify", allowed_terms={("fall", 2026)}) == []
 
 
-def test_term_match_is_case_and_whitespace_insensitive():
-    rec = parse_simplify_format([_entry(terms=[" summer  2026 "])],
-                                source="github:simplify", allowed_years={2026})[0]
-    assert rec.term == ["summer  2026"]  # original (stripped) string stored; matched on normalize
+def test_term_stored_canonical_regardless_of_input_format():
+    rec = parse_simplify_format([_entry(terms=[" summer  2027 "])],
+                                source="github:simplify", allowed_terms={("summer", 2027)})[0]
+    assert rec.term == ["Summer 2027"]  # canonical "Season YYYY", not the raw input string
 
 
-def test_allowed_years_none_keeps_all_and_tags():
+def test_allowed_terms_none_keeps_all_and_tags():
     recs = parse_simplify_format([_entry(terms=["Summer 2027"])], source="github:simplify")
     assert len(recs) == 1 and recs[0].term == ["Summer 2027"]
