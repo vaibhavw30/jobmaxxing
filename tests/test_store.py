@@ -25,6 +25,21 @@ def test_apply_migrations_creates_jobs_table(conn):
     conn.execute("select * from active_unrouted").fetchall()
 
 
+def test_migration_trims_existing_whitespace_company_and_title(conn):
+    apply_migrations(conn)
+    # Simulate legacy rows written before the trimming fix (raw insert bypasses
+    # JobRecord.__post_init__, which now strips at ingest).
+    conn.execute(
+        "insert into jobs (dedupe_key, source, company, title, url) values "
+        "(%s, %s, %s, %s, %s)",
+        ("ccc|swe", "github:simplify", " CCC Intelligent Solutions", "SWE Intern ", "https://x"),
+    )
+    # Re-running migrations applies the idempotent backfill.
+    apply_migrations(conn)
+    row = conn.execute("select company, title from jobs where dedupe_key = 'ccc|swe'").fetchone()
+    assert row == ("CCC Intelligent Solutions", "SWE Intern")
+
+
 def _rec(**kw):
     base = dict(source="github:simplify", company="Acme", title="SWE Intern", url="https://list/apply", dedupe_key="acme|swe intern")
     base.update(kw)
