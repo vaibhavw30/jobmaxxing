@@ -1,10 +1,12 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from jobmaxxing.normalize import (
     ATS_SOURCES,
     canonicalize_url,
+    current_cycle_years,
     make_dedupe_key,
     normalize_text,
+    parse_term,
     within_age_cutoff,
 )
 
@@ -92,3 +94,35 @@ def test_age_cutoff_coerces_naive_now_as_utc():
     aware_old = datetime(2025, 9, 1, tzinfo=timezone.utc)
     assert within_age_cutoff(aware_recent, naive_now) is True
     assert within_age_cutoff(aware_old, naive_now) is False
+
+
+# ---------------------------------------------------------------------------
+# current_cycle_years + parse_term
+# ---------------------------------------------------------------------------
+
+
+def test_current_cycle_years_first_half_is_current_year_only():
+    assert current_cycle_years(date(2026, 6, 16)) == {2026}
+    assert current_cycle_years(date(2026, 1, 1)) == {2026}
+
+
+def test_current_cycle_years_h2_adds_next_year():
+    assert current_cycle_years(date(2026, 7, 1)) == {2026, 2027}
+    assert current_cycle_years(date(2026, 12, 31)) == {2026, 2027}
+
+
+def test_parse_term_basic():
+    assert parse_term("Summer 2026") == ("summer", 2026)
+    assert parse_term("Fall 2026") == ("fall", 2026)
+
+
+def test_parse_term_whitespace_and_case_insensitive():
+    assert parse_term("  SUMMER   2026 ") == ("summer", 2026)
+
+
+def test_parse_term_returns_none_for_untagged_or_junk():
+    assert parse_term("N/A") is None
+    assert parse_term("") is None
+    assert parse_term("intern") is None
+    assert parse_term(None) is None
+    assert parse_term(["Summer 2026"]) is None

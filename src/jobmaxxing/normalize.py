@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlsplit, urlunsplit
 
 ATS_SOURCES = {"greenhouse", "lever", "ashby"}
@@ -13,6 +13,35 @@ MAX_AGE_DAYS = 243
 # (title/company normalization aggressiveness).
 _PUNCT = re.compile(r"[^a-z0-9 ]+")
 _WS = re.compile(r"\s+")
+
+# Term filtering: a posting's recruiting term(s) are "in window" if their year is in the
+# current cycle. The window is derived from the run date (no hand-maintained list): the current
+# calendar year, plus next year once we're in H2 — by late summer next year's cycle is open for
+# applications, so we surface it without dropping the current fall.
+CYCLE_LOOKAHEAD_MONTH = 7  # July
+
+_TERM_RE = re.compile(r"\b(spring|summer|fall|winter)\s+(\d{4})\b")
+
+
+def current_cycle_years(today: date) -> set[int]:
+    """In-window years for term filtering, derived from ``today``."""
+    years = {today.year}
+    if today.month >= CYCLE_LOOKAHEAD_MONTH:
+        years.add(today.year + 1)
+    return years
+
+
+def parse_term(value) -> tuple[str, int] | None:
+    """Parse a Simplify ``terms`` entry like 'Summer 2026' -> ('summer', 2026).
+
+    Returns None for 'N/A', blanks, non-strings, or anything without a season+year. Matching runs
+    on ``normalize_text`` output, so case and surrounding/extra whitespace don't matter."""
+    if not isinstance(value, str):
+        return None
+    m = _TERM_RE.search(normalize_text(value))
+    if not m:
+        return None
+    return m.group(1), int(m.group(2))
 
 
 def normalize_text(value: str) -> str:
