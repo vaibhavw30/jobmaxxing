@@ -38,3 +38,14 @@ def test_jobrecord_accepts_all_fields():
     )
     assert rec.external_id == "123"
     assert rec.alt_urls == ["https://a"]
+
+
+def test_jobrecord_term_defaults_none():
+    rec = JobRecord(source="github:simplify", company="Acme", title="SWE Intern", url="https://x/y")
+    assert rec.term is None
+
+
+def test_jobrecord_accepts_term_list():
+    rec = JobRecord(source="github:simplify", company="Acme", title="SWE Intern",
+                    url="https://x/y", term=["Summer 2026", "Fall 2026"])
+    assert rec.term == ["Summer 2026", "Fall 2026"]

@@ -17,6 +17,10 @@ class JobRecord:
     is_active: bool = True
     alt_urls: list[str] = field(default_factory=list)
     dedupe_key: str = ""
+    # Recruiting term(s) for github-list postings, e.g. ["Summer 2026"]. Three-state:
+    # None = legacy/unprocessed or ATS (no term); [] = processed-but-untagged (kept N/A / co-op);
+    # non-empty = matched in-window terms.
+    term: list[str] | None = None
 
     def __post_init__(self) -> None:
         # Trim surrounding whitespace so a stray leading/trailing space in a
