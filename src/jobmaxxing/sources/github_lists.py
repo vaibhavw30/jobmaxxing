@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from ..models import JobRecord
-from ..normalize import make_dedupe_key
+from ..normalize import make_dedupe_key, parse_term
 
 
 def _clean_str(value) -> str | None:
@@ -13,7 +13,9 @@ def _clean_str(value) -> str | None:
     return None
 
 
-def parse_simplify_format(payload: list[dict], source: str) -> list[JobRecord]:
+def parse_simplify_format(
+    payload: list[dict], source: str, allowed_years: set[int] | None = None
+) -> list[JobRecord]:
     """Parse a Simplify-format listings.json (Simplify / vanshb03 / pitt-csc forks).
 
     Defensive by design: a single malformed entry is skipped rather than aborting the
@@ -21,6 +23,11 @@ def parse_simplify_format(payload: list[dict], source: str) -> list[JobRecord]:
     company_name, title, or url; tolerates dirty `locations` (nulls/non-strings) and
     non-numeric `date_posted`. URLs are stored as-is here; canonicalization happens once
     in the pipeline (the single chokepoint before storage), not per adapter.
+
+    Term filtering: if ``allowed_years`` is provided, entries whose ``terms`` list
+    contains only parseable year(s) outside the window are dropped. Entries with no
+    parseable terms (N/A, blank, missing) are kept with ``term=[]``. If
+    ``allowed_years`` is None, all entries are kept and all parseable terms are tagged.
     """
     records: list[JobRecord] = []
     for entry in payload:
@@ -31,6 +38,21 @@ def parse_simplify_format(payload: list[dict], source: str) -> list[JobRecord]:
         url = entry.get("url")
         if not company or not title or not url:
             continue
+
+        raw_terms = entry.get("terms")
+        raw_terms = raw_terms if isinstance(raw_terms, list) else []
+        parsed = []  # (year, original_string) for each parseable term
+        for t in raw_terms:
+            pt = parse_term(t)
+            if pt:
+                parsed.append((pt[1], t.strip()))
+        if allowed_years is None:
+            in_window = [orig for (_year, orig) in parsed]
+        else:
+            in_window = [orig for (year, orig) in parsed if year in allowed_years]
+            if parsed and not in_window:
+                continue  # purely off-window: never stored
+        term = list(dict.fromkeys(in_window))  # order-preserving de-dup; [] when untagged
 
         locations = entry.get("locations")
         if isinstance(locations, list):
@@ -59,6 +81,7 @@ def parse_simplify_format(payload: list[dict], source: str) -> list[JobRecord]:
                 posted_at=posted_at,
                 is_active=is_active,
                 dedupe_key=make_dedupe_key(company, title),
+                term=term,
             )
         )
     return records
