@@ -6,18 +6,18 @@ from .models import JobRecord
 
 _INSERT_COLS = (
     "dedupe_key, source, external_id, company, title, location, "
-    "url, alt_urls, description, posted_at, is_active"
+    "url, alt_urls, description, posted_at, is_active, term"
 )
 _INSERT_SQL = (
     f"insert into jobs ({_INSERT_COLS}) "
-    "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+    "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
     "on conflict (dedupe_key) do nothing"
 )
 # company/title are intentionally NOT in the UPDATE: they define the dedupe_key, so
 # changing them would make it a different job. Only enrichable fields are refreshed.
 _UPDATE_SQL = (
     "update jobs set source=%s, external_id=%s, location=%s, url=%s, "
-    "alt_urls=%s, description=%s, posted_at=%s, is_active=%s, scraped_at=now() "
+    "alt_urls=%s, description=%s, posted_at=%s, is_active=%s, term=%s, scraped_at=now() "
     "where dedupe_key=%s"
 )
 
@@ -35,6 +35,7 @@ def _record_values(rec: JobRecord) -> tuple:
         rec.description,
         rec.posted_at,
         rec.is_active,
+        rec.term,
     )
 
 
@@ -51,6 +52,7 @@ def _row_to_record(row: dict) -> JobRecord:
         is_active=row["is_active"],
         alt_urls=list(row["alt_urls"]),
         dedupe_key=row["dedupe_key"],
+        term=row["term"],
     )
 
 
@@ -65,6 +67,7 @@ def _update_values(rec: JobRecord) -> tuple:
         rec.description,
         rec.posted_at,
         rec.is_active,
+        rec.term,
         rec.dedupe_key,
     )
 
@@ -105,7 +108,7 @@ def upsert_jobs(conn: psycopg.Connection, records: list[JobRecord]) -> dict[str,
             row["dedupe_key"]: row
             for row in cur.execute(
                 "select dedupe_key, source, external_id, company, title, location, "
-                "url, alt_urls, description, posted_at, is_active "
+                "url, alt_urls, description, posted_at, is_active, term "
                 "from jobs where dedupe_key = any(%s)",
                 (keys,),
             ).fetchall()

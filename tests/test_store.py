@@ -152,3 +152,18 @@ def test_upsert_batch_is_idempotent(conn):
     counts = upsert_jobs(conn, recs)
     assert counts == {"inserted": 0, "merged": 3}
     assert conn.execute("select count(*) from jobs").fetchone()[0] == 3
+
+
+def test_upsert_persists_term(conn):
+    apply_migrations(conn)
+    upsert_jobs(conn, [_rec(term=["Summer 2026", "Fall 2026"])])
+    row = conn.execute("select term from jobs where dedupe_key='acme|swe intern'").fetchone()
+    assert row[0] == ["Summer 2026", "Fall 2026"]
+
+
+def test_term_empty_list_and_null_persist_distinctly(conn):
+    apply_migrations(conn)
+    upsert_jobs(conn, [_rec(dedupe_key="a|1", term=[]), _rec(dedupe_key="a|2", term=None)])
+    got = dict(conn.execute("select dedupe_key, term from jobs").fetchall())
+    assert got["a|1"] == []
+    assert got["a|2"] is None
