@@ -102,6 +102,7 @@ INDEX_HTML = """<!DOCTYPE html>
     </label>
   </form>
   <span class="count">showing {{ shown }} of {{ total }} matching{% if total > shown %} — narrow with a filter{% endif %}</span>
+  <span class="count" style="margin-left:0;">Undecided {{ (dcounts.get('new', 0) + dcounts.get('routed', 0)) }}{% if dcounts.get('approved_for_tailoring', 0) %} &middot; Interested {{ dcounts.get('approved_for_tailoring') }}{% endif %}{% if dcounts.get('tailored', 0) %} &middot; Tailored {{ dcounts.get('tailored') }}{% endif %}{% if dcounts.get('reviewed', 0) %} &middot; Reviewed {{ dcounts.get('reviewed') }}{% endif %}{% if dcounts.get('applied', 0) %} &middot; Applied {{ dcounts.get('applied') }}{% endif %}{% if dcounts.get('rejected', 0) %} &middot; Rejected {{ dcounts.get('rejected') }}{% endif %}</span>
 </div>
 <table>
   <thead>
@@ -259,7 +260,8 @@ def create_app(conn_factory):
     from flask import Flask, jsonify, render_template_string, request
 
     from ..normalize import in_window_term_labels
-    from .triage import apply_decision, count_triage, fetch_triage_rows, reset_to_routed
+    from .triage import (apply_decision, count_triage, decision_counts,
+                         fetch_triage_rows, reset_to_routed)
 
     app = Flask(__name__)
 
@@ -303,6 +305,7 @@ def create_app(conn_factory):
                                      sort=sort_arg, direction=dir_arg)
             total = count_triage(conn, status=status, statuses=statuses,
                                  resume_type=resume_type_arg, term=term_arg)
+            dcounts = decision_counts(conn, in_window_labels=in_window)
             cats = [r[0] for r in conn.execute(
                 "select distinct resume_type from jobs where resume_type is not null order by 1"
             ).fetchall()]
@@ -322,6 +325,7 @@ def create_app(conn_factory):
             categories=cats, resume_type_sel=(resume_type_arg or ""),
             active_sort=(sort_arg or ""), active_dir=(dir_arg or ""),
             term_options=term_opts, term_sel=(term_arg or ""),
+            dcounts=dcounts,
         )
 
     @app.post("/decide")

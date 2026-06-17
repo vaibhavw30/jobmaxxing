@@ -328,3 +328,37 @@ def test_no_marker_for_alive_link(client, conn):
     conn.execute("update jobs set url_status='alive' where id=%s", (jid,)); conn.commit()
     html = client.get("/").get_data(as_text=True)
     assert "OkCo" in html and "dead link" not in html.lower()
+
+
+# ---------------------------------------------------------------------------
+# Decision counts in header
+# ---------------------------------------------------------------------------
+
+
+def test_header_shows_decision_counts(client, conn):
+    """GET / renders friendly per-status counts in the header bar.
+
+    Seed one approved_for_tailoring (Interested) and one applied row, both in-window.
+    The header must show 'Interested' with count 1 and 'Applied' with count 1.
+    Undecided must always be shown (0 here since we seeded no new/routed rows).
+    """
+    from jobmaxxing.normalize import in_window_term_labels
+    from datetime import datetime, timezone
+
+    # Use a term that is definitely in-window at test-run time so the server's
+    # computed in_window includes it.
+    current_window = sorted(in_window_term_labels(datetime.now(timezone.utc).date()))
+    assert current_window, "no in-window terms — test cannot proceed"
+    in_term = current_window[0]
+
+    _insert(conn, dedupe_key="hdc|int", status="approved_for_tailoring", term=[in_term])
+    _insert(conn, dedupe_key="hdc|app", status="applied", term=[in_term])
+
+    html = client.get("/").get_data(as_text=True)
+    assert "Interested" in html
+    assert "Applied" in html
+    # Counts are present (exact number in the rendered text)
+    assert "Interested 1" in html
+    assert "Applied 1" in html
+    # Undecided is always shown
+    assert "Undecided" in html

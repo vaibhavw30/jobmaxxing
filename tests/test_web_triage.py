@@ -6,7 +6,8 @@ import psycopg
 import pytest
 
 from jobmaxxing.migrate import apply_migrations
-from jobmaxxing.web.triage import apply_decision, count_triage, fetch_triage_rows, reset_to_routed
+from jobmaxxing.web.triage import (apply_decision, count_triage, decision_counts,
+                                    fetch_triage_rows, reset_to_routed)
 
 
 # ---------------------------------------------------------------------------
@@ -455,3 +456,34 @@ def test_url_status_in_rows(conn):
     conn.execute("update jobs set url_status='alive' where id=%s", (jid,)); conn.commit()
     rows = fetch_triage_rows(conn, in_window_labels=["Summer 2026"])
     assert rows[0]["url_status"] == "alive"
+
+
+# ---------------------------------------------------------------------------
+# decision_counts tests
+# ---------------------------------------------------------------------------
+
+
+def test_decision_counts_groups_by_status(conn):
+    """decision_counts returns per-status dict for visible (in-window) rows only.
+
+    Seed: routed x2, approved_for_tailoring x1, applied x1, rejected x1
+    plus one off-window github row (term=['Spring 2026'] — outside the window ['Summer 2026']).
+    The off-window row should be excluded from the counts.
+    """
+    _insert(conn, dedupe_key="dc|r1", status="routed", term=["Summer 2026"])
+    _insert(conn, dedupe_key="dc|r2", status="routed", term=["Summer 2026"])
+    _insert(conn, dedupe_key="dc|int", status="approved_for_tailoring", term=["Summer 2026"])
+    _insert(conn, dedupe_key="dc|app", status="applied", term=["Summer 2026"])
+    _insert(conn, dedupe_key="dc|rej", status="rejected", term=["Summer 2026"])
+    # Off-window row — should NOT appear in counts
+    _insert(conn, dedupe_key="dc|off", status="routed", term=["Spring 2026"])
+
+    counts = decision_counts(conn, in_window_labels=["Summer 2026"])
+
+    assert counts.get("routed", 0) == 2
+    assert counts.get("approved_for_tailoring", 0) == 1
+    assert counts.get("applied", 0) == 1
+    assert counts.get("rejected", 0) == 1
+    # Off-window row is excluded → total of all statuses = 5, not 6
+    total = sum(counts.values())
+    assert total == 5
