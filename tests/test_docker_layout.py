@@ -43,15 +43,15 @@ def test_migrations_dir_exists():
 
 
 def test_migrations_count():
-    """migrations/ must contain at least 6 *.sql files.
+    """migrations/ must contain at least 10 *.sql files (0001..0010 exist today).
 
     This is a cheap canary: if someone deletes migration files (or the COPY set
     in the Dockerfile drifts), the image's MIGRATIONS_DIR would be incomplete.
     Update this floor when new migrations are added.
     """
     sql_files = list((_REPO_ROOT / "migrations").glob("*.sql"))
-    assert len(sql_files) >= 6, (
-        f"Expected >=6 migration files, found {len(sql_files)}: {sorted(f.name for f in sql_files)}"
+    assert len(sql_files) >= 10, (
+        f"Expected >=10 migration files, found {len(sql_files)}: {sorted(f.name for f in sql_files)}"
     )
 
 
