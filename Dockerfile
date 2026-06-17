@@ -8,17 +8,17 @@
 # Run a stage (supply secrets at runtime — nothing is baked in):
 #   docker run --rm \
 #     -e DATABASE_URL=postgres://... \
-#     jobmaxxing python -m jobmaxxing.migrate
+#     jobmaxxing -m jobmaxxing.migrate
 #
 #   docker run --rm \
 #     -e DATABASE_URL=postgres://... \
 #     -e OPENAI_API_KEY=... \
-#     jobmaxxing python -m jobmaxxing.route
+#     jobmaxxing -m jobmaxxing.route
 #
 #   docker run --rm \
 #     -e DATABASE_URL=postgres://... \
 #     -p 8765:8765 \
-#     jobmaxxing python -m jobmaxxing.web
+#     jobmaxxing -m jobmaxxing.web
 
 # ---------------------------------------------------------------------------
 # Stage 1: builder — install deps into an isolated venv
