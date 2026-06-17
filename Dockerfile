@@ -69,8 +69,8 @@ RUN adduser --disabled-password --gecos "" appuser \
 USER appuser
 
 # No secrets baked in — supply DATABASE_URL, LLM keys, S3_BUCKET etc. via -e / --env-file at run time.
-# Default command shows the run-module help as a sanity check; override per stage:
-#   docker run --rm -e DATABASE_URL=... jobmaxxing python -m jobmaxxing.migrate
+# Default command shows the package is importable; override per stage:
+#   docker run --rm -e DATABASE_URL=... jobmaxxing -m jobmaxxing.migrate
 ENTRYPOINT ["python"]
 # Default: print a one-liner confirming the package is importable.
 # Override per stage at run time, e.g.:
