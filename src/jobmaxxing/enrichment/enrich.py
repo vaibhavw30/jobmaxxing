@@ -137,6 +137,7 @@ def enrich_new(
         "limit %s",
         (cap, SUPPORTED_HOSTS_SQL, max_fetches),
     ).fetchall()
+    conn.commit()  # release the read's snapshot/lock BEFORE any (slow) network I/O
     if not rows:
         return {"enriched": 0, "permanent_failed": 0, "transient_failed": 0, "candidates": 0}
 

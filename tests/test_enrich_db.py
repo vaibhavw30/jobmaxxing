@@ -391,6 +391,22 @@ def test_enriched_description_survives_reingest(conn):
     assert after[1] == before[1]      # enriched_at untouched by _UPDATE_SQL
 
 
+def test_enrich_new_holds_no_transaction_during_fetch(conn):
+    # The slow HTTP fetch phase must run with NO open DB transaction, so the read's
+    # snapshot/lock is released before any network I/O (a hung fetch can't pin locks).
+    from psycopg.pq import TransactionStatus
+    _insert(conn, dedupe_key="tx", url=_GH.format(n=1))
+    seen = {}
+
+    def recording_fetch(api_url):
+        seen["status"] = conn.info.transaction_status
+        return _fake_fetch_ok(api_url)
+
+    counts = enrich_new(conn, fetch_json=recording_fetch)
+    assert counts["enriched"] == 1                          # behavior unchanged
+    assert seen["status"] == TransactionStatus.IDLE         # not INTRANS during the fetch
+
+
 def test_apply_outcomes_writes_each_kind(conn):
     from jobmaxxing.enrichment.enrich import Outcome, _apply_outcomes
     _insert(conn, dedupe_key="ao_e", url=_GH.format(n=701))
