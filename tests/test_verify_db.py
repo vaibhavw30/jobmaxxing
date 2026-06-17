@@ -121,3 +121,25 @@ def test_candidate_query_excludes_offwindow_decided_capped_and_fresh(conn):
     counts = verify_urls(conn, now=NOW, cap=3, reverify_days=14,
                          liveness_fetcher=_status_fetcher({}), find_alt=lambda c, t, u: None)
     assert counts["candidates"] == 0
+
+
+def test_live_alt_wins_over_search(conn):
+    # When the primary is dead but a known alt_url resolves, promote the alt and never search.
+    jid = _ins(conn, dedupe_key="v|altwins", url="https://dead", alt_urls=["https://alt"])
+    searched = []
+
+    def find_alt(c, t, u):
+        searched.append(u)
+        return "https://found"
+
+    verify_urls(conn, now=NOW, find_alt=find_alt, liveness_fetcher=_status_fetcher(
+        {"https://dead": 404, "https://alt": 200, "https://found": 200}))
+    url, alts, status, _, _ = _row(conn, jid)
+    assert status == "alive" and url == "https://alt"   # alt promoted, not the search result
+    assert searched == []                                # search short-circuited by the live alt
+
+
+def test_fold_alts_orders_old_primary_first_and_excludes_new_primary():
+    from jobmaxxing.verification.verify import _fold_alts
+    assert _fold_alts("https://new", "https://old",
+                      ["https://a", "https://new", "https://a"]) == ["https://old", "https://a"]
