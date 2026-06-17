@@ -1,0 +1,43 @@
+name: nightly-report
+
+on:
+  schedule:
+    - cron: "0 12 * * *"   # 12:00 UTC ≈ 7–8am US Eastern, once daily
+  workflow_dispatch: {}     # manual trigger for testing
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync deps (frozen)
+        run: uv sync --frozen --no-dev
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: uv run python -m jobmaxxing.migrate
+
+      - name: Build + email the daily digest
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}     # optional; defaults to 587
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}     # optional; defaults to SMTP_USER
+          REPORT_TO: ${{ secrets.REPORT_TO }}
+        run: uv run python -m jobmaxxing.report --email

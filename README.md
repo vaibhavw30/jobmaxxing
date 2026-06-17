@@ -42,6 +42,28 @@ source is logged and skipped (the run still exits 0). A DB/config error (bad
 `DATABASE_URL`) fails the run loudly — that's an operator setup error, not a
 transient source failure.
 
+## Nightly digest email
+
+`uv run python -m jobmaxxing.report` prints a daily digest (new in-window roles in
+the last 24h, the undecided backlog, and the manual-capture queue size). Add
+`--email` to send it. `.github/workflows/nightly-report.yml` runs it once a day
+(12:00 UTC) so the digest lands in your inbox.
+
+Email goes over generic SMTP, so Gmail or Outlook both work — pick a sending
+account and add these repo **secrets** (`DATABASE_URL` already exists):
+
+| Secret | Gmail | Outlook |
+|--------|-------|---------|
+| `SMTP_HOST` | `smtp.gmail.com` | `smtp.office365.com` |
+| `SMTP_USER` | your address | your address |
+| `SMTP_PASS` | an **app password** (Google Account → Security → App passwords; a normal password won't work with 2FA) | an app password |
+| `REPORT_TO` | recipient(s), comma-separated — can include both your Gmail and Outlook | |
+| `SMTP_PORT` | optional, defaults to `587` | |
+| `SMTP_FROM` | optional, defaults to `SMTP_USER` | |
+
+Trigger it on demand from the Actions tab (**nightly-report → Run workflow**) to
+test before waiting for the schedule.
+
 ## Querying the feed
 
 Use the Supabase SQL editor / table browser. Convenience view:
