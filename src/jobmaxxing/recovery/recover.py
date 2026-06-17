@@ -86,6 +86,7 @@ def recover_new(conn, *, max_jobs=100, max_workers=3, cap=2,
         "order by scraped_at desc limit %s",
         (cap, max_jobs),
     ).fetchall()
+    conn.commit()  # release the read's snapshot/lock BEFORE any (slow) network I/O
     if not rows:
         return {"recovered": 0, "missed": 0, "candidates": 0}
 

@@ -106,6 +106,21 @@ def test_recover_search_exception_is_missed_with_error(conn):
     assert row[0] == 1 and row[1] is not None          # attempt bumped + a diagnostic error recorded
 
 
+def test_recover_new_holds_no_transaction_during_fetch(conn):
+    # The slow search/fetch phase must run with NO open DB transaction held.
+    from psycopg.pq import TransactionStatus
+    _insert(conn, dedupe_key="tx", url=_WD.format(n="1"))
+    seen = {}
+
+    def recording_searcher(query, *, fetch_text):
+        seen["status"] = conn.info.transaction_status
+        return []                                            # no candidates -> a clean miss
+
+    recover_new(conn, searcher=recording_searcher, fetcher=lambda u: "",
+                llm_confirm=lambda j, c: False)
+    assert seen["status"] == TransactionStatus.IDLE          # not INTRANS during the fetch
+
+
 def test_recover_cli_shim_exposes_main():
     import jobmaxxing.recover_jd as cli
     from jobmaxxing.recovery.recover import main
