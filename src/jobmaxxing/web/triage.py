@@ -8,7 +8,7 @@ from ..normalize import off_window_sql
 
 # Columns rendered by the web table: the canonical funnel set plus route_confidence
 # (a display/relevance signal not part of the Sheets-facing TRIAGE_COLUMNS).
-_DISPLAY_COLS = (*TRIAGE_COLUMNS, "route_confidence", "term")
+_DISPLAY_COLS = (*TRIAGE_COLUMNS, "route_confidence", "term", "url_status")
 
 # DEFAULT_LIMIT == MAX_LIMIT by design: the table renders up to the cap in one page
 # (no pagination yet); the "showing N of M" indicator surfaces any truncation.
@@ -31,11 +31,13 @@ _SORTS = {
 
 
 def _demote_clause(in_window_labels) -> str:
-    """ORDER BY key that sinks off-window github rows below everything in EVERY sort — hiding them
-    is a visibility rule, not a sort column. Date-aware: the window is recomputed per request, so a
-    row tagged with a now-past term sinks automatically (no re-ingest needed). The off-window
-    predicate is shared with the digest via ``normalize.off_window_sql`` so the two never drift."""
-    return f"({off_window_sql(in_window_labels)}) asc"
+    """ORDER BY key that sinks rows the operator shouldn't act on to the bottom of EVERY sort:
+    off-window github rows (date-aware, shared via ``normalize.off_window_sql`` so the digest can't
+    drift) AND rows whose link is confirmed dead (``url_status='dead'``, any source). Hiding these is
+    a visibility rule, not a sort column."""
+    # coalesce keeps the dead check NULL-safe: a bare `url_status = 'dead'` is NULL for unverified
+    # rows, and `false OR NULL` = NULL sorts *after* true under ASC — which would invert the order.
+    return f"({off_window_sql(in_window_labels)} or coalesce(url_status, '') = 'dead') asc"
 
 
 def _order_by(sort, direction, in_window_labels):

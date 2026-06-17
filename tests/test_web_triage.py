@@ -429,3 +429,29 @@ def test_untagged_empty_term_not_demoted(conn):
                        posted_at="2026-01-01", route_confidence=0.9)
     ids = [str(r["id"]) for r in fetch_triage_rows(conn)]
     assert ids.index(untagged) < ids.index(legacy)
+
+
+def test_dead_url_row_demoted(conn):
+    alive = _insert(conn, dedupe_key="u|alive", term=["Summer 2026"], posted_at="2026-01-01",
+                    route_confidence=0.9)
+    dead = _insert(conn, dedupe_key="u|dead", term=["Summer 2026"], posted_at="2026-06-01",
+                   route_confidence=0.9)
+    conn.execute("update jobs set url_status='dead' where id=%s", (dead,)); conn.commit()
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn, in_window_labels=["Summer 2026"])]
+    assert ids.index(alive) < ids.index(dead)  # dead link sinks despite being newer
+
+
+def test_dead_demotion_applies_to_all_sorts(conn):
+    a_dead = _insert(conn, dedupe_key="u|a", company="Aardvark", term=["Summer 2026"])
+    conn.execute("update jobs set url_status='dead' where id=%s", (a_dead,)); conn.commit()
+    z_alive = _insert(conn, dedupe_key="u|z", company="Zzz", term=["Summer 2026"])
+    ids = [str(r["id"]) for r in fetch_triage_rows(conn, sort="company", direction="asc",
+                                                   in_window_labels=["Summer 2026"])]
+    assert ids.index(z_alive) < ids.index(a_dead)  # Zzz(alive) before Aardvark(dead)
+
+
+def test_url_status_in_rows(conn):
+    jid = _insert(conn, dedupe_key="u|s", term=["Summer 2026"])
+    conn.execute("update jobs set url_status='alive' where id=%s", (jid,)); conn.commit()
+    rows = fetch_triage_rows(conn, in_window_labels=["Summer 2026"])
+    assert rows[0]["url_status"] == "alive"
