@@ -111,6 +111,24 @@ def count_triage(conn, *, status=None, statuses=None, resume_type=None, term=Non
     return conn.execute(f"select count(*) from jobs where {where}", params).fetchone()[0]
 
 
+def decision_counts(conn, *, in_window_labels=()) -> dict:
+    """Return a dict of {status: count} for all visible triageable rows.
+
+    "Visible" uses the same predicate as fetch_triage_rows: resume_type is not null and NOT
+    off-window (as defined by off_window_sql). This keeps the counts in sync with what the
+    operator actually sees in the table regardless of any status/resume_type/term filter applied
+    to the current view — the summary always reflects the full decision backlog.
+    """
+    off_sql = off_window_sql(in_window_labels)
+    sql = (
+        f"select status, count(*) from jobs"
+        f" where resume_type is not null and not ({off_sql})"
+        f" group by status"
+    )
+    rows = conn.execute(sql).fetchall()
+    return {status: count for status, count in rows}
+
+
 def apply_decision(conn, job_id, *, interested=None, applied=None) -> dict:
     """Apply an operator decision (interested/applied tokens) to a job's funnel status.
 
