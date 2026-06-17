@@ -50,6 +50,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 background: #f8f8f8; padding: 6px; font-size: 11px; }
   a.posting-link { color: #4f46e5; font-weight: 600; text-decoration: none; font-size: 11px; }
   a.posting-link:hover { text-decoration: underline; }
+  .dead-link { color: #b91c1c; font-size: 11px; font-weight: 600; margin-left: 6px; white-space: nowrap; }
   .controls { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   button { cursor: pointer; border: none; border-radius: 4px; padding: 4px 10px; font-size: 12px;
            font-weight: 600; }
@@ -130,6 +131,7 @@ INDEX_HTML = """<!DOCTYPE html>
     </td>
     <td>
       <a class="posting-link" href="{{ row.url }}" target="_blank" rel="noopener">Open posting</a>
+      {% if row.url_status == 'dead' %}<span class="dead-link" title="link did not resolve; no working alternative found">&#9888; dead link</span>{% endif %}
     </td>
     <td>
       <div class="controls">

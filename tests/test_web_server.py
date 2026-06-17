@@ -314,3 +314,17 @@ def test_server_applies_current_upcoming_window(client, conn):
             posted_at="2030-01-01", route_confidence=0.9)
     html = client.get("/").get_data(as_text=True)
     assert html.index("UpcomingCo") < html.index("OffWindowCo")
+
+
+def test_dead_link_marker_rendered(client, conn):
+    jid = _insert(conn, dedupe_key="m|dead", term=["Summer 2026"], company="DeadCo")
+    conn.execute("update jobs set url_status='dead' where id=%s", (jid,)); conn.commit()
+    html = client.get("/").get_data(as_text=True)
+    assert "dead link" in html.lower()
+
+
+def test_no_marker_for_alive_link(client, conn):
+    jid = _insert(conn, dedupe_key="m|ok", term=["Summer 2026"], company="OkCo")
+    conn.execute("update jobs set url_status='alive' where id=%s", (jid,)); conn.commit()
+    html = client.get("/").get_data(as_text=True)
+    assert "OkCo" in html and "dead link" not in html.lower()
