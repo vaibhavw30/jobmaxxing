@@ -34,7 +34,9 @@ class Digest:
     new_rows: list[dict]         # capped at NEW_ROWS_CAP
     by_type: dict[str, int]      # new rows grouped by resume_type
     total_undecided: int         # all routed + undecided in-window (the backlog)
-    queue_size: int              # nightly_queue: relevant roles still missing a JD
+    # nightly_queue: routed roles still missing a JD after recovery was exhausted. NOTE: the view is
+    # NOT term-window-filtered (unlike the metrics above), so it spans all terms — labeled as such.
+    queue_size: int
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +99,7 @@ def render_text(d: Digest) -> str:
     if d.by_type:
         lines.append("new by type: " + ", ".join(f"{k}: {v}" for k, v in d.by_type.items()))
     lines.append(f"undecided in-window backlog: {d.total_undecided}")
-    lines.append(f"manual-capture queue (relevant, JD-less): {d.queue_size}")
+    lines.append(f"manual-capture queue (JD-less, recovery-exhausted, all terms): {d.queue_size}")
     lines.append("")
     if d.new_rows:
         lines.append(f"new roles (top {len(d.new_rows)} of {d.new_count}):")
@@ -143,7 +145,7 @@ def render_html(d: Digest) -> str:
         f"<p><b>window:</b> {esc(', '.join(d.window))}<br>"
         f"<b>new by type:</b> {by_type}<br>"
         f"<b>undecided in-window backlog:</b> {d.total_undecided}<br>"
-        f"<b>manual-capture queue (relevant, JD-less):</b> {d.queue_size}</p>"
+        f"<b>manual-capture queue (JD-less, recovery-exhausted, all terms):</b> {d.queue_size}</p>"
         f"{table}"
         "</body></html>"
     )

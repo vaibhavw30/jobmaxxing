@@ -65,7 +65,8 @@ def off_window_sql(in_window_labels) -> str:
     ``in_window_labels`` are canonical "Season YYYY" strings built from a fixed season set + integer
     years (``in_window_term_labels``) — no user input, so inlining them as a SQL array literal is
     injection-safe. Uses ``split_part(source, ':', 1) = 'github'`` (no ``%`` wildcard) so the fragment
-    is safe whether or not the surrounding query passes parameters."""
+    is safe whether or not the surrounding query passes parameters; this assumes github sources always
+    carry a ``:subsource`` suffix (``github:simplify`` etc.), which holds for every list source."""
     arr = "array[" + ", ".join("'" + lbl + "'" for lbl in sorted(in_window_labels)) + "]::text[]"
     return (f"split_part(source, ':', 1) = 'github' and (term is null or "
             f"(cardinality(term) > 0 and not (term && {arr})))")
