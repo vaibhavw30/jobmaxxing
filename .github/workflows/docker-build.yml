@@ -1,0 +1,42 @@
+name: docker-build
+
+on:
+  push:
+    branches: [main]
+  pull_request: {}    # no secrets needed for build; safe on fork PRs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build core-pipeline image
+        run: docker build -t jobmaxxing:ci .
+
+      - name: Verify config + migrations resolve in-container
+        run: |
+          docker run --rm jobmaxxing:ci -c "
+          from jobmaxxing.routing.config import load_routing_config
+          load_routing_config()
+          from jobmaxxing.llm.config import load_llm_config
+          load_llm_config()
+          from jobmaxxing.migrate import MIGRATIONS_DIR
+          n = len(list(MIGRATIONS_DIR.glob('*.sql')))
+          print('config+migrations OK, migrations=', n)
+          assert n >= 6, f'expected >=6 migrations, got {n}'
+          "
+
+      - name: Verify a core stage is invokable (migrate imports cleanly)
+        run: |
+          docker run --rm jobmaxxing:ci -c "
+          import jobmaxxing.migrate as m
+          print('migrate module OK:', m.__file__)
+          "

@@ -263,6 +263,66 @@ It pushes routed jobs (company, title, JD, status, …) into the sheet and pulls
 back into the funnel: **interested = Yes** → queued for tailoring, **No** → rejected, **applied** → applied.
 Mark jobs in the sheet, re-run the sync, then your local `tailor` run picks up the interested ones.
 
+## Docker / AWS portability
+
+The repo ships a production-lean multi-stage Dockerfile for the **core pipeline** stages
+(`run`, `enrich`, `route`, `migrate`, `recover_jd`, `web`).
+Heavy local-only stages (`enrich_workday` = Playwright, `tailor` = pdflatex) are out of scope.
+
+### Build
+
+```bash
+docker build -t jobmaxxing .
+```
+
+### Run a stage
+
+All configuration is injected at runtime via environment variables — no secrets are baked in.
+
+```bash
+# Apply migrations
+docker run --rm -e DATABASE_URL=postgres://user:pass@host:5432/db \
+  jobmaxxing -m jobmaxxing.migrate
+
+# Run pollers
+docker run --rm -e DATABASE_URL=postgres://... \
+  jobmaxxing -m jobmaxxing.run
+
+# Route with LLM fallback (LLM keys optional — deterministic rules still work without them)
+docker run --rm \
+  -e DATABASE_URL=postgres://... \
+  -e OPENAI_API_KEY=sk-... \
+  -e ANTHROPIC_API_KEY=... \
+  jobmaxxing -m jobmaxxing.route
+
+# Local web triage table
+docker run --rm \
+  -e DATABASE_URL=postgres://... \
+  -p 8765:8765 \
+  jobmaxxing -m jobmaxxing.web
+```
+
+### In-scope vs out-of-scope
+
+| Stage | In image | Notes |
+|-------|----------|-------|
+| `migrate` | Yes | |
+| `run` (pollers) | Yes | |
+| `enrich` | Yes | |
+| `route` | Yes | LLM keys optional |
+| `recover_jd` | Yes | |
+| `web` | Yes | Flask; `--extra web` |
+| `enrich_workday` | No | Requires Playwright/Chromium |
+| `tailor` | No | Requires pdflatex/TeX Live |
+
+### AWS path (July)
+
+The image is already AWS-portable: env-var config, stateless compute, S3 via boto3 default
+credential chain (IAM-role ready).  Next steps are: push to ECR, define a Fargate task per
+stage, inject secrets from Parameter Store / Secrets Manager.  No application code changes needed.
+
+See `docs/superpowers/specs/2026-06-16-dockerfile-aws-portability-design.md` for the full design.
+
 ## Status & open items
 
 Phases 1–4 are built: core feed (ingestion), routing, tailoring, and the MCP
