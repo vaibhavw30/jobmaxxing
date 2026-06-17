@@ -25,7 +25,10 @@
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim AS builder
 
-WORKDIR /build
+# Build at /app (same path as the runtime stage) so the editable install's path
+# record and the venv script shebangs resolve correctly after the venv is copied
+# into the runtime image — a /build vs /app mismatch breaks `import jobmaxxing`.
+WORKDIR /app
 
 # Install uv
 RUN pip install --no-cache-dir uv
@@ -50,7 +53,7 @@ FROM python:3.12-slim AS runtime
 WORKDIR /app
 
 # Copy the populated venv from the builder stage
-COPY --from=builder /build/.venv /app/.venv
+COPY --from=builder /app/.venv /app/.venv
 
 # Put the venv on PATH so `python` and all console scripts resolve from it
 ENV PATH="/app/.venv/bin:$PATH"
