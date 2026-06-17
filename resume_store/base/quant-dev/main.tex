@@ -1,0 +1,50 @@
+% TEMPLATE — replace with your real résumé. Tailoring reads base/quant-dev/main.tex.
+\documentclass[11pt,letterpaper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\setlength{\parindent}{0pt}
+
+\begin{document}
+
+% ===== CONTACT =====
+{\Large \textbf{Your Name}} \\
+your.email@example.com \quad | \quad github.com/yourhandle \quad | \quad linkedin.com/in/yourhandle
+
+\bigskip
+\hrule
+\bigskip
+
+% ===== SUMMARY =====
+\section*{Summary}
+Quantitative developer specialising in low-latency C++ systems for market data processing,
+order book management, and backtesting. Experienced in systems programming, multithreading,
+and time-series infrastructure on Linux trading platforms.
+
+% ===== SKILLS =====
+\section*{Technical Skills}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Languages:} C++ (C++17/20), Python, Rust
+  \item \textbf{Domains:} low-latency, market data, order book, backtesting, time-series
+  \item \textbf{Systems:} systems programming, multithreading, Linux kernel interfaces
+  \item \textbf{Tools:} profilers (perf, VTune), FIX protocol, in-house trading frameworks
+\end{itemize}
+
+% ===== EXPERIENCE =====
+\section*{Experience}
+
+\textbf{Quantitative Developer} \hfill Month Year -- Present \\
+\textit{Firm Name, City, ST}
+\begin{itemize}[leftmargin=*]
+  \item Built low-latency C++ components for market data ingestion and order book reconstruction.
+  \item Wrote multithreaded backtesting harness replaying time-series tick data.
+  \item Reduced median order-to-ack latency from X\,$\mu$s to Y\,$\mu$s on Linux.
+  \item Owned systems programming work including lock-free queues and CPU affinity.
+\end{itemize}
+
+% ===== EDUCATION =====
+\section*{Education}
+\textbf{B.S./M.S. Computer Science or Engineering} \hfill Year \\
+\textit{University Name}
+
+\end{document}
