@@ -1,5 +1,4 @@
 import logging
-import os
 
 import psycopg
 from mcp.server.fastmcp import FastMCP
@@ -7,7 +6,7 @@ from mcp.server.fastmcp import FastMCP
 from ..config import load_settings
 from ..llm.client import complete as llm_complete
 from ..tailoring.latex import compile_pdf
-from ..tailoring.storage import S3Store
+from ..tailoring.storage import make_store
 from . import tools
 
 logger = logging.getLogger(__name__)
@@ -18,11 +17,9 @@ def _conn():
     return psycopg.connect(load_settings().database_url)
 
 
-def _store() -> S3Store:
-    bucket = os.environ.get("S3_BUCKET")
-    if not bucket:
-        raise RuntimeError("S3_BUCKET is not set (see README / .env.example)")
-    return S3Store(bucket)
+def _store():
+    """Build the artifact store from the environment (RESUME_STORE_DIR or S3_BUCKET)."""
+    return make_store()
 
 
 @mcp.tool()
