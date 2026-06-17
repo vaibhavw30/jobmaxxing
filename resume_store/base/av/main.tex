@@ -1,0 +1,52 @@
+% TEMPLATE — replace with your real résumé. Tailoring reads base/av/main.tex.
+\documentclass[11pt,letterpaper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\setlength{\parindent}{0pt}
+
+\begin{document}
+
+% ===== CONTACT =====
+{\Large \textbf{Your Name}} \\
+your.email@example.com \quad | \quad github.com/yourhandle \quad | \quad linkedin.com/in/yourhandle
+
+\bigskip
+\hrule
+\bigskip
+
+% ===== SUMMARY =====
+\section*{Summary}
+Autonomous-vehicle software engineer with experience in sensor fusion, SLAM, and motion planning.
+Skilled in lidar perception, point cloud processing, localization, and Kalman filter-based
+state estimation. Comfortable in safety-critical environments where correctness and
+validation processes are non-negotiable.
+
+% ===== SKILLS =====
+\section*{Technical Skills}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Perception:} sensor fusion, lidar, point cloud processing, perception pipelines
+  \item \textbf{Localisation:} SLAM, localization, Kalman filter, state estimation
+  \item \textbf{Planning:} motion planning, path planning, behaviour prediction
+  \item \textbf{Practices:} safety-critical software, functional safety (ISO 26262), simulation
+  \item \textbf{Languages:} C++, Python, ROS2
+\end{itemize}
+
+% ===== EXPERIENCE =====
+\section*{Experience}
+
+\textbf{Autonomous Vehicle Software Engineer} \hfill Month Year -- Present \\
+\textit{Company Name, City, ST}
+\begin{itemize}[leftmargin=*]
+  \item Built sensor fusion pipeline combining lidar and camera for real-time obstacle detection.
+  \item Improved SLAM localisation accuracy using extended Kalman filter on HD-map priors.
+  \item Developed motion planning module with safety-critical collision-avoidance guarantees.
+  \item Processed point cloud data at X Hz to feed downstream perception components.
+\end{itemize}
+
+% ===== EDUCATION =====
+\section*{Education}
+\textbf{B.S./M.S. Computer Science, Robotics, or Electrical Engineering} \hfill Year \\
+\textit{University Name}
+
+\end{document}

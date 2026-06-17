@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import sys
 
 import psycopg
@@ -13,7 +12,7 @@ from .latex import compile_pdf, enforce_one_page
 from .passes import apply_critique, build_tailored, critique_resume, shrink_to_one_page
 from .rubric import load_rubric
 from .scorer import delta, score
-from .storage import S3Store
+from .storage import make_store
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +92,10 @@ def _print_review(store, job_id) -> None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     settings = load_settings()
-    bucket = os.environ.get("S3_BUCKET")
-    if not bucket:
-        sys.exit("S3_BUCKET is not set (see README / .env.example)")
-    store = S3Store(bucket)
+    try:
+        store = make_store()
+    except RuntimeError as exc:
+        sys.exit(str(exc))
     with psycopg.connect(settings.database_url) as conn:
         if len(sys.argv) >= 2 and sys.argv[1] == "approve":
             if len(sys.argv) != 3:
