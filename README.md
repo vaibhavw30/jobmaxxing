@@ -204,6 +204,17 @@ req-id/back-link match or an LLM-confirmed fuzzy match, writes it with `jd_sourc
 (flagged for review), and resets routing so the next poll re-routes it with the real JD.
 Optional live check: `JOBMAXXING_E2E=1 uv run pytest tests/test_recover_e2e.py -v`.
 
+### URL verification (local)
+
+`uv run python -m jobmaxxing.verify_url` checks that the in-window triaged jobs' posting URLs still
+resolve. When a URL is dead (404/410), it tries the job's other known URLs, then searches the web for
+the same posting (reusing the recovery engine) and promotes a confidently-matched, working link to the
+primary `url` (folding the dead one into `alt_urls`). When nothing resolves, it marks `url_status='dead'`
+— the triage table shows a "⚠ dead link" marker and sinks the row to the bottom.
+
+Run LOCALLY (DuckDuckGo rate-limits datacenter IPs), like `recover_jd`. Re-checks each job every ~14
+days; a dead row stays dead (verify_attempts hits the cap) until re-run with a higher cap.
+
 ### Local triage table (recommended)
 
 Interactive web table to triage routed jobs — no Google account, no auth, localhost only. Writes
