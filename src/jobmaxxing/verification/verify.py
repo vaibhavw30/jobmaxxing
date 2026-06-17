@@ -70,6 +70,7 @@ def verify_urls(conn: psycopg.Connection, *, now=None, cap=DEFAULT_CAP, max_jobs
         f"order by verified_at asc nulls first, scraped_at desc limit %s",
         (cap, cutoff, max_jobs),
     ).fetchall()
+    conn.commit()  # release the read's snapshot/lock BEFORE any (slow) network I/O
     if not rows:
         return {"alive": 0, "promoted": 0, "dead": 0, "transient": 0, "candidates": 0}
 

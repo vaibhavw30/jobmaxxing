@@ -139,6 +139,21 @@ def test_live_alt_wins_over_search(conn):
     assert searched == []                                # search short-circuited by the live alt
 
 
+def test_verify_urls_holds_no_transaction_during_fetch(conn):
+    # The slow liveness-check phase must run with NO open DB transaction held.
+    from psycopg.pq import TransactionStatus
+    _ins(conn, dedupe_key="v|tx", url="https://live")
+    seen = {}
+
+    def recording_fetcher(url):
+        seen["status"] = conn.info.transaction_status
+        return 200
+
+    verify_urls(conn, now=NOW, liveness_fetcher=recording_fetcher,
+                find_alt=lambda c, t, u: None)
+    assert seen["status"] == TransactionStatus.IDLE          # not INTRANS during the fetch
+
+
 def test_fold_alts_orders_old_primary_first_and_excludes_new_primary():
     from jobmaxxing.verification.verify import _fold_alts
     assert _fold_alts("https://new", "https://old",
