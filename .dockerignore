@@ -1,0 +1,46 @@
+# Keep only what the image needs: src/ config/ rubrics/ migrations/ pyproject.toml uv.lock
+# Everything else is excluded for a leaner build context and to avoid leaking secrets.
+
+# Version control / tooling
+.git
+.gitignore
+.gitattributes
+
+# Claude Code worktrees and session state (potentially large)
+.claude
+.worktrees
+
+# Local virtualenv (the builder stage creates a fresh one)
+.venv
+
+# Local dev environment / secrets (never bake into the image)
+.env
+.env.*
+*.env
+
+# Tests and docs (not needed at runtime)
+tests/
+docs/
+scripts/
+*.md
+
+# Compiled Python artefacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+
+# Local operator artefacts
+resume_store/
+tailored/
+*.pdf
+*.tex
+*.log
+
+# macOS and editor noise
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
