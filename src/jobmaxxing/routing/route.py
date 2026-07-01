@@ -158,7 +158,8 @@ def main() -> None:
             set_manual(conn, sys.argv[2], sys.argv[3])
             print(f"set job {sys.argv[2]} -> {sys.argv[3]} (manual)")
         else:
-            counts = route_new(conn)
+            no_llm = "--no-llm" in sys.argv[1:]
+            counts = route_new(conn, no_llm=no_llm)
             print(f"routed: {counts}")
 
 
