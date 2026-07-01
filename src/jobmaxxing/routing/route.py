@@ -64,8 +64,9 @@ def route_one(
     return resolve(outcome.candidates, title, description, llm_complete=llm_complete, config=config)
 
 
-def route_new(conn: psycopg.Connection, *, config=None, llm_complete=None, max_llm_calls=None, reroute=False) -> dict:
+def route_new(conn: psycopg.Connection, *, config=None, llm_complete=None, max_llm_calls=None, reroute=False, no_llm=False) -> dict:
     """Route unrouted, non-manual rows. With reroute=True, re-route all non-manual rows.
+    With no_llm=True, both LLM budgets are 0 (rules-only; ambiguous rows deferred for a later LLM pass).
     Returns counts {rules, llm, deferred, manual_skipped}.
 
     Decisions are computed per row (so one bad row never aborts the run); the resulting
@@ -77,10 +78,15 @@ def route_new(conn: psycopg.Connection, *, config=None, llm_complete=None, max_l
     cfg = config if config is not None else load_routing_config()
     do_llm = llm_complete if llm_complete is not None else llm_complete_default
     thresholds = cfg.get("thresholds", {})
-    cap = max_llm_calls if max_llm_calls is not None else thresholds.get("max_llm_calls_per_run", 200)
+    if no_llm:
+        cap = 0                                              # deterministic-only: never call the LLM
+        title_cap = 0
+    else:
+        cap = max_llm_calls if max_llm_calls is not None else thresholds.get("max_llm_calls_per_run", 200)
+        title_cap = thresholds.get("title_route_max_llm", 100)
     title_after = thresholds.get("title_route_after", 3)
     budget = Budget(remaining=cap)
-    title_budget = Budget(remaining=thresholds.get("title_route_max_llm", 100))   # separate cap
+    title_budget = Budget(remaining=title_cap)               # separate cap (0 when no_llm)
 
     if reroute:
         where = "route_method is distinct from 'manual'"

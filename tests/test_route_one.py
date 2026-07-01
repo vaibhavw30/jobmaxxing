@@ -151,3 +151,31 @@ def test_has_jd_ambiguous_still_uses_normal_llm_path():
     d = route_one("AI Engineer / ML Engineer Intern", "generic body", CONFIG,
                   llm_complete=fake_llm, budget=jd_b, exhausted=True, title_budget=Budget(5))
     assert d.method == "llm" and jd_b.remaining == 4
+
+
+def test_ambiguous_jd_zero_budget_defers_without_llm():
+    """Ambiguous JD row with an exhausted budget defers and never calls the LLM."""
+    b = Budget(remaining=0)
+    d = route_one("AI Engineer / ML Engineer Intern", "generic body", CONFIG,
+                  llm_complete=_llm_never, budget=b)
+    assert d.resume_type is None and d.method is None
+    assert b.remaining == 0
+
+
+def test_exhausted_title_zero_title_budget_defers_without_llm():
+    """An enrichment-exhausted no-signal title with a zero title budget defers, no LLM."""
+    b = Budget(remaining=0)
+    tb = Budget(remaining=0)
+    d = route_one("Barista", None, CONFIG, llm_complete=_llm_never, budget=b,
+                  exhausted=True, title_budget=tb)
+    assert d.resume_type is None and d.method is None
+    assert tb.remaining == 0
+
+
+def test_clear_title_routes_with_all_budgets_zero():
+    """Rules never need the LLM: a clear title still routes even with both budgets at 0."""
+    b = Budget(remaining=0)
+    tb = Budget(remaining=0)
+    d = route_one("Software Engineer Intern", "api work", CONFIG, llm_complete=_llm_never,
+                  budget=b, exhausted=True, title_budget=tb)
+    assert d.resume_type == "swe" and d.method == "rules"

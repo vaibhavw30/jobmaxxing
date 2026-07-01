@@ -166,3 +166,21 @@ def test_title_routing_uses_separate_budget_not_jd_budget(conn):
     # max_llm_calls=0 would block JD routing, but title routing has its own budget -> still routes
     counts = route_new(conn, config=CONFIG, llm_complete=_fake_llm_ai, max_llm_calls=0)
     assert counts["llm_title"] == 1
+
+
+def test_route_new_no_llm_routes_rules_and_defers_ambiguous(conn):
+    """no_llm=True: rule-routable rows still route; ambiguous JD rows defer; LLM never called."""
+    _insert(conn, title="Software Engineer Intern", description="api work", dedupe_key="n|swe")
+    _insert(conn, title="AI Engineer / ML Engineer Intern", description="generic body",
+            dedupe_key="n|ambig")
+
+    def llm_never(*a, **k):
+        raise AssertionError("LLM must not be called when no_llm=True")
+
+    counts = route_new(conn, config=CONFIG, llm_complete=llm_never, no_llm=True)
+    assert counts["llm"] == 0 and counts["llm_title"] == 0
+    assert counts["rules"] == 1 and counts["deferred"] == 1
+    swe = conn.execute("select route_method, status from jobs where dedupe_key='n|swe'").fetchone()
+    assert swe == ("rules", "routed")
+    ambig = conn.execute("select resume_type, route_method from jobs where dedupe_key='n|ambig'").fetchone()
+    assert ambig == (None, None)
