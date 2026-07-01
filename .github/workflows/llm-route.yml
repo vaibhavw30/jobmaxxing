@@ -1,19 +1,19 @@
-name: pollers
+name: llm-route
 
 on:
   schedule:
-    - cron: "0 */3 * * *"   # every 3 hours (lists + ATS together; cron drift is fine)
+    - cron: "0 6 */4 * *"   # ~every 4 days (days 1,5,9,13,17,21,25,29 at 06:00 UTC); one shorter gap at month rollover
   workflow_dispatch: {}       # manual trigger; NO pull_request (fork PRs must not touch secrets)
 
 permissions:
   contents: read
 
 concurrency:
-  group: pollers
+  group: llm-route
   cancel-in-progress: false
 
 jobs:
-  poll:
+  route:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,17 +31,10 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: uv run python -m jobmaxxing.migrate
 
-      - name: Run pollers
+      - name: LLM route (tiebreak + title-routing over accumulated ambiguous jobs)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: uv run python -m jobmaxxing.run
-
-      - name: Enrich descriptions
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: uv run python -m jobmaxxing.enrich
-
-      - name: Route new postings (rules only — no LLM cost)
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: uv run python -m jobmaxxing.route --no-llm
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: uv run python -m jobmaxxing.route

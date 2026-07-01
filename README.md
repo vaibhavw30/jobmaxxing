@@ -91,8 +91,11 @@ PostgreSQL **server** binary (`initdb`/`pg_ctl`) on your `PATH`:
 After ingestion, postings are classified into one of 8 resume types
 (`quant-trader, quant-dev, mle, swe, fdse, ai, robotics, av`).
 
-- Run: `uv run python -m jobmaxxing.route` (also runs automatically as a second
-  step in the pollers workflow, right after ingestion).
+- Run: `uv run python -m jobmaxxing.route` (full LLM). **Scheduled routing is split to cut LLM cost:**
+  `pollers.yml` runs `route --no-llm` every 3h (deterministic rules only, no LLM spend — rule-matched
+  jobs appear within hours), and `llm-route.yml` runs the full `route` (LLM tiebreak + title-routing)
+  every ~4 days over the accumulated ambiguous jobs. So ambiguous postings are classified within ~4
+  days; rule-matched postings stay fresh. Add `--no-llm` locally to route without any LLM calls.
 - **Deterministic first:** title signals are authoritative; a JD-keyword tie-break
   resolves most of the rest. The LLM is a bounded, schema-gated fallback used only
   for ambiguous postings that have a job description, and its answer is always
