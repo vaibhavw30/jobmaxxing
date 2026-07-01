@@ -169,15 +169,25 @@ def test_title_routing_uses_separate_budget_not_jd_budget(conn):
 
 
 def test_route_new_no_llm_routes_rules_and_defers_ambiguous(conn):
-    """no_llm=True: rule-routable rows still route; ambiguous JD rows defer; LLM never called."""
+    """no_llm=True: rule-routable rows still route; ambiguous JD rows defer; LLM never called.
+
+    The spy RETURNS A VALID response and counts its calls (rather than raising) so that a
+    regression where no_llm is a no-op would (a) trip `calls == []`, and (b) LLM-route the
+    ambiguous row — flipping `counts["llm"]`/`ambig` too. A raising spy would be silently
+    swallowed by route_new's per-row `except Exception` and miscounted as deferred.
+    """
     _insert(conn, title="Software Engineer Intern", description="api work", dedupe_key="n|swe")
     _insert(conn, title="AI Engineer / ML Engineer Intern", description="generic body",
             dedupe_key="n|ambig")
 
-    def llm_never(*a, **k):
-        raise AssertionError("LLM must not be called when no_llm=True")
+    calls = []
 
-    counts = route_new(conn, config=CONFIG, llm_complete=llm_never, no_llm=True)
+    def llm_spy(task, messages, **kw):
+        calls.append(1)
+        return '{"type": "ai", "confidence": 0.9}'   # valid: a wrongly-called LLM would route the ambiguous row
+
+    counts = route_new(conn, config=CONFIG, llm_complete=llm_spy, no_llm=True)
+    assert calls == []                               # direct signal: the LLM was never invoked
     assert counts["llm"] == 0 and counts["llm_title"] == 0
     assert counts["rules"] == 1 and counts["deferred"] == 1
     swe = conn.execute("select route_method, status from jobs where dedupe_key='n|swe'").fetchone()
