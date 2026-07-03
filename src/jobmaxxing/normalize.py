@@ -23,6 +23,10 @@ TERM_HORIZON_MONTHS = 12
 
 _TERM_RE = re.compile(r"\b(spring|summer|fall|winter)\s+(\d{4})\b")
 
+# Hosts that encode job identity in the query string (e.g. Indeed's ?jk=, Glassdoor's ?jl=).
+# For these, the query is KEPT so the stored link stays usable; all other hosts drop it (tracking).
+_IDENTITY_QUERY_HOSTS = ("indeed.com", "glassdoor.com")
+
 
 def _term_start_index(season: str, year: int) -> int:
     """Months-since-year-0 ordinal of a term's (approximate) start, for window comparisons."""
@@ -99,22 +103,18 @@ def make_dedupe_key(company: str, title: str) -> str:
 
 
 def canonicalize_url(url: str) -> str:
-    """Lowercase scheme+host, drop query/fragment, strip trailing slash (keep root).
-
-    CAVEAT: stripping ALL query params is safe for tracking-style params
-    (e.g. ``utm_*``) used by the current sources (Simplify / Greenhouse /
-    Lever / Ashby), but must NOT be used for ATS boards that encode job
-    identity in the query string (e.g. ``?jobId=...``).
-
-    Non-absolute URLs (missing scheme or netloc) are returned unchanged to
-    avoid corrupting relative or schemeless inputs.
-    """
+    """Lowercase scheme+host, drop fragment, strip trailing slash (keep root). Drops the query for
+    tracking-param collapse EXCEPT on identity-in-query hosts (_IDENTITY_QUERY_HOSTS), where the query
+    is preserved so the job link isn't broken. Non-absolute URLs are returned unchanged."""
     stripped = url.strip()
     parts = urlsplit(stripped)
     if not parts.scheme or not parts.netloc:
         return stripped
     path = parts.path.rstrip("/") or "/"
-    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, "", ""))
+    host = parts.netloc.lower()
+    keep_query = any(host == h or host.endswith("." + h) for h in _IDENTITY_QUERY_HOSTS)
+    query = parts.query if keep_query else ""
+    return urlunsplit((parts.scheme.lower(), host, path, query, ""))
 
 
 def within_age_cutoff(
