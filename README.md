@@ -207,6 +207,22 @@ req-id/back-link match or an LLM-confirmed fuzzy match, writes it with `jd_sourc
 (flagged for review), and resets routing so the next poll re-routes it with the real JD.
 Optional live check: `JOBMAXXING_E2E=1 uv run pytest tests/test_recover_e2e.py -v`.
 
+### JobSpy discovery (local, operator-run)
+
+Pull internship postings from the big job boards (Indeed + LinkedIn by default) with the free
+[JobSpy](https://github.com/speedyapply/JobSpy) library. **Run LOCALLY on a residential IP** — the
+boards 429 datacenter IPs, so this is never in CI.
+
+    uv sync --extra discovery
+    uv run python -m jobmaxxing.discover_jobspy
+
+It reads `config/jobspy.yaml` (sites, search terms seeded from the 8 resume types, `results_wanted`,
+US-wide + remote, `job_type: internship`), scrapes each (site, term), and ingests results into the same
+`jobs` table as the CI pollers — deduped by `company|title`. Indeed rows (and LinkedIn with
+`linkedin_fetch_description`) arrive with descriptions, so they route immediately. Fail-soft: one
+site/term getting rate-limited never blocks the rest. Space out runs to avoid 429s (LinkedIn is the
+touchiest — its `results_wanted` is kept small).
+
 ### URL verification (local)
 
 `uv run python -m jobmaxxing.verify_url` checks that the in-window triaged jobs' posting URLs still

@@ -19,6 +19,7 @@ dependencies = [
 headless = ["playwright>=1.40"]
 sheets = ["gspread>=6", "google-auth>=2"]
 web = ["flask>=3"]
+discovery = ["python-jobspy>=1.1.80"]
 
 [dependency-groups]
 dev = [

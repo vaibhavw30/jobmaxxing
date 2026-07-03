@@ -7,9 +7,10 @@ lazily, so this module imports fine without the extra and CI never touches JobSp
 import logging
 from datetime import date, datetime, timezone
 
+import psycopg
 import yaml
 
-from ..config import REPO_ROOT
+from ..config import REPO_ROOT, load_settings
 from ..models import JobRecord
 from ..normalize import make_dedupe_key
 from ..pipeline import ingest_records
@@ -118,3 +119,40 @@ def discover_jobspy(conn, *, scrape, config, now) -> dict:
                 logger.warning("jobspy search failed [%s]: %s", key, exc)
                 report[key] = {"status": "error", "error": str(exc)}
     return report
+
+
+def _jobspy_scrape(search: dict) -> list[dict]:
+    """The ONLY network/pandas code: call JobSpy and return list-of-dict rows. Lazily imports jobspy so
+    the module loads without the `discovery` extra."""
+    from jobspy import scrape_jobs
+
+    kwargs = dict(
+        site_name=[search["site"]],
+        search_term=search["term"],
+        location=search.get("location"),
+        results_wanted=search.get("results_wanted", 50),
+        job_type=search.get("job_type"),
+    )
+    if search.get("hours_old") is not None:
+        kwargs["hours_old"] = search["hours_old"]
+    if search.get("country_indeed"):
+        kwargs["country_indeed"] = search["country_indeed"]
+    if "linkedin_fetch_description" in search:
+        kwargs["linkedin_fetch_description"] = search["linkedin_fetch_description"]
+    df = scrape_jobs(**kwargs)
+    if df is None or len(df) == 0:
+        return []
+    return df.to_dict("records")
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    settings = load_settings()
+    config = load_jobspy_config()
+    with psycopg.connect(settings.database_url) as conn:
+        report = discover_jobspy(conn, scrape=_jobspy_scrape, config=config,
+                                 now=datetime.now(timezone.utc))
+    ok = sum(1 for r in report.values() if r.get("status") == "ok")
+    for key, res in report.items():
+        logger.info("%s: %s", key, res)
+    print(f"jobspy discovery: {ok}/{len(report)} searches ok")
