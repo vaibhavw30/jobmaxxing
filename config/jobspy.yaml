@@ -1,0 +1,22 @@
+# JobSpy discovery searches (local worker: python -m jobmaxxing.discover_jobspy). Tune freely.
+location: "United States"
+country_indeed: "USA"
+job_type: "internship"
+hours_old: 720                 # ~30 days; drop ancient postings
+linkedin_fetch_description: true
+sites: ["indeed", "linkedin"]  # also supported: glassdoor, google, zip_recruiter
+results_wanted:                # per site, per search term
+  indeed: 200
+  linkedin: 75                 # bounded — under LinkedIn's ~10th-page single-IP rate limit
+  glassdoor: 100
+  google: 100
+  zip_recruiter: 100
+search_terms:
+  - "software engineer intern"
+  - "machine learning intern"
+  - "quantitative trader intern"
+  - "quantitative developer intern"
+  - "data scientist intern"
+  - "artificial intelligence intern"
+  - "robotics intern"
+  - "autonomous vehicle intern"

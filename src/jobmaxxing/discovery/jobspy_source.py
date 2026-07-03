@@ -7,8 +7,12 @@ lazily, so this module imports fine without the extra and CI never touches JobSp
 import logging
 from datetime import date, datetime, timezone
 
+import yaml
+
+from ..config import REPO_ROOT
 from ..models import JobRecord
 from ..normalize import make_dedupe_key
+from ..pipeline import ingest_records
 
 logger = logging.getLogger(__name__)
 
@@ -70,3 +74,47 @@ def parse_jobspy(rows, *, site):
             dedupe_key=make_dedupe_key(company, title),
         ))
     return records
+
+
+def load_jobspy_config(path=None) -> dict:
+    """Load config/jobspy.yaml (mirrors routing.config.load_routing_config). Missing file -> {}."""
+    path = path or REPO_ROOT / "config" / "jobspy.yaml"
+    if not path.exists():
+        return {}
+    return yaml.safe_load(path.read_text()) or {}
+
+
+def _slug(term: str) -> str:
+    return term.strip().lower().replace(" ", "-")
+
+
+def discover_jobspy(conn, *, scrape, config, now) -> dict:
+    """Run each (site, search_term) via the injected scrape fn, parse + ingest. Fail-soft per search:
+    a 429/network/parse error on one never blocks the rest. Returns a per-search report."""
+    sites = config.get("sites", [])
+    terms = config.get("search_terms", [])
+    results_wanted = config.get("results_wanted", {})
+    report = {}
+    for site in sites:
+        for term in terms:
+            key = f"jobspy:{site}:{_slug(term)}"
+            search = {
+                "site": site,
+                "term": term,
+                "location": config.get("location"),
+                "results_wanted": results_wanted.get(site, 50),
+                "hours_old": config.get("hours_old"),
+                "country_indeed": config.get("country_indeed"),
+                "job_type": config.get("job_type"),
+            }
+            if site == "linkedin":
+                search["linkedin_fetch_description"] = config.get("linkedin_fetch_description", False)
+            try:
+                rows = scrape(search)
+                records = parse_jobspy(rows, site=site)
+                counts = ingest_records(conn, records, now=now)
+                report[key] = {"status": "ok", **counts}
+            except Exception as exc:  # fail-soft: one search never blocks the others
+                logger.warning("jobspy search failed [%s]: %s", key, exc)
+                report[key] = {"status": "error", "error": str(exc)}
+    return report
