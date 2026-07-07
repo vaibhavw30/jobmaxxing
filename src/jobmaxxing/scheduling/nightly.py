@@ -102,3 +102,50 @@ def run_nightly(workers=None, *, runner, notifier, db_delta, now, log_file=None,
     except Exception as exc:  # best-effort; a missing osascript never fails the run
         logger.warning("nightly notifier failed: %s", exc)
     return {"results": results, "new_postings": new_postings, "title": title, "body": body}
+
+
+def _subprocess_runner(name, argv, timeout):
+    """Run one worker as a subprocess; map exit/timeout to a RunResult. Captures stdout+stderr."""
+    start = time.monotonic()
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        # text=True → stdout/stderr are str or None
+        out = (exc.stdout or "") + (exc.stderr or "")
+        return RunResult(name=name, status="timeout", exit_code=None,
+                         duration_s=time.monotonic() - start, output=out)
+    output = (proc.stdout or "") + (proc.stderr or "")
+    status = "ok" if proc.returncode == 0 else "failed"
+    return RunResult(name=name, status=status, exit_code=proc.returncode,
+                     duration_s=time.monotonic() - start, output=output)
+
+
+def _osascript_notifier(title, body):
+    """Fire a macOS notification. json.dumps → safe AppleScript double-quoted string literals."""
+    script = f"display notification {json.dumps(body)} with title {json.dumps(title)}"
+    subprocess.run(["osascript", "-e", script], check=False)
+
+
+def _db_delta(since):
+    """Count jobs rows scraped since the batch start — the 'N new postings' headline."""
+    import psycopg
+
+    from ..config import load_settings
+
+    settings = load_settings()
+    with psycopg.connect(settings.database_url) as conn:
+        row = conn.execute("select count(*) from jobs where scraped_at >= %s", (since,)).fetchone()
+    return row[0] if row else 0
+
+
+def main():
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    now = datetime.now(timezone.utc)
+    log_dir = Path.home() / "Library" / "Logs" / "jobmaxxing"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    _prune_logs(log_dir, now)
+    log_file = log_dir / f"nightly-{now.strftime('%Y%m%d-%H%M%S')}.log"
+    report = run_nightly(runner=_subprocess_runner, notifier=_osascript_notifier,
+                         db_delta=_db_delta, now=now, log_file=log_file)
+    print(f"{report['title']} — {report['body']}")
