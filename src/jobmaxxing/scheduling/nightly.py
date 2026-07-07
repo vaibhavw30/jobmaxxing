@@ -74,3 +74,31 @@ def _prune_logs(log_dir, now, keep_days=14):
             continue
         if mtime < cutoff:
             p.unlink(missing_ok=True)
+
+
+def run_nightly(workers=None, *, runner, notifier, db_delta, now, log_file=None,
+                timeout=DEFAULT_TIMEOUT_S):
+    """Run each (name, argv) via runner sequentially, fail-soft; then count new rows + notify once."""
+    if workers is None:
+        workers = default_workers()
+    results = []
+    for name, argv in workers:
+        try:
+            result = runner(name, argv, timeout)
+        except Exception as exc:  # fail-soft: a runner blowup never aborts the batch
+            logger.warning("nightly worker crashed [%s]: %s", name, exc)
+            result = RunResult(name=name, status="failed", exit_code=None,
+                               duration_s=0.0, output=str(exc))
+        results.append(result)
+        _log_result(log_file, result)
+    try:
+        new_postings = db_delta(now)
+    except Exception as exc:
+        logger.warning("nightly db_delta failed: %s", exc)
+        new_postings = None
+    title, body = format_summary(results, new_postings)
+    try:
+        notifier(title, body)
+    except Exception as exc:  # best-effort; a missing osascript never fails the run
+        logger.warning("nightly notifier failed: %s", exc)
+    return {"results": results, "new_postings": new_postings, "title": title, "body": body}
