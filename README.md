@@ -234,6 +234,32 @@ primary `url` (folding the dead one into `alt_urls`). When nothing resolves, it 
 Run LOCALLY (DuckDuckGo rate-limits datacenter IPs), like `recover_jd`. Re-checks each job every ~14
 days; a dead row stays dead (verify_attempts hits the cap) until re-run with a higher cap.
 
+### Nightly scheduling (local, macOS)
+
+Run the four residential-IP workers automatically once a night via launchd — "the production cron."
+At 12am local time it runs, in order, `discover_jobspy` → `enrich_workday` → `recover_jd` → `verify_url`
+(sequentially, so only one worker uses your home IP at a time), then posts one macOS notification with a
+recap. Nothing here runs in CI.
+
+One-time setup:
+
+    uv sync --extra headless --extra discovery
+    uv run playwright install chromium                       # for enrich_workday
+    cp scripts/com.jobmaxxing.nightly.plist ~/Library/LaunchAgents/
+    # edit ~/Library/LaunchAgents/com.jobmaxxing.nightly.plist:
+    #   - ProgramArguments[0]  -> output of `which uv`
+    #   - WorkingDirectory     -> this repo's absolute path
+    #   - Standard{Out,Error}Path -> /Users/<you>/Library/Logs/jobmaxxing/launchd.{out,err}
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jobmaxxing.nightly.plist
+
+`StartCalendarInterval` uses the Mac's **local** time (12am ET when your timezone is Eastern) and
+**catches up on wake** if the laptop slept through midnight. Per-run logs land in
+`~/Library/Logs/jobmaxxing/nightly-*.log` (pruned after 14 days). Run it by hand any time with:
+
+    uv run python -m jobmaxxing.nightly
+
+To remove the schedule: `launchctl bootout gui/$(id -u)/com.jobmaxxing.nightly`.
+
 ### Local triage table (recommended)
 
 Interactive web table to triage routed jobs — no Google account, no auth, localhost only. Writes
