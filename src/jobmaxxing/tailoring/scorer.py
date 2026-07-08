@@ -1,3 +1,4 @@
+import json
 import re
 
 _WS = re.compile(r"\s+")
@@ -61,3 +62,51 @@ def delta(before: dict, after: dict) -> dict:
         "static": round(after["static"] - before["static"], 10),
         "dynamic": round(after["dynamic"] - before["dynamic"], 10),
     }
+
+
+_QUAL_AXES = ("technical_depth", "impact", "ats", "relevance_order")
+
+_SCORE_SYSTEM = (
+    "You score a LaTeX résumé against a job description on four axes, each an integer 0-10 (10 = ideal):\n"
+    "- technical_depth: does the résumé show the LEVEL the role wants, not just the noun?\n"
+    "- impact: bullets carrying real numbers / measurable outcomes.\n"
+    "- ats: clean structure, standard section headers, no parser-breaking formatting.\n"
+    "- relevance_order: most JD-relevant experience surfaced first.\n"
+    "Anchor to the role's key terms provided. Respond with STRICT JSON only: "
+    '{"technical_depth": n, "impact": n, "ats": n, "relevance_order": n}.'
+)
+
+
+def parse_qualitative(text) -> dict:
+    """Lenient parse of the four 0-10 axes. Clamps to [0, 10]; ANY structural failure (no JSON, bad or
+    missing axis) -> all four = 5.0 (neutral), so a flaky scoring call never crashes tailoring."""
+    neutral = {a: 5.0 for a in _QUAL_AXES}
+    if not isinstance(text, str):
+        return dict(neutral)
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        return dict(neutral)
+    try:
+        data = json.loads(match.group(0))
+    except (ValueError, TypeError):
+        return dict(neutral)
+    if not isinstance(data, dict):
+        return dict(neutral)
+    out = {}
+    for axis in _QUAL_AXES:
+        value = data.get(axis)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return dict(neutral)  # all-or-nothing: a single bad/missing axis -> neutral
+        out[axis] = float(min(10, max(0, value)))
+    return out
+
+
+def score_qualitative(resume_text: str, jd_text: str, rubric: dict, *, complete) -> dict:
+    """Pass the résumé + JD + the rubric's key terms to the LLM for the four qualitative axes (temp-0)."""
+    terms = ", ".join(rubric.get("keyword_dict", []))
+    messages = [
+        {"role": "system", "content": _SCORE_SYSTEM},
+        {"role": "user", "content": f"Role key terms: {terms}\n\nJob description:\n{jd_text}\n\nRésumé (LaTeX):\n{resume_text}"},
+    ]
+    text = complete("score", messages, max_tokens=300, response_format={"type": "json_object"}, temperature=0)
+    return parse_qualitative(text)
