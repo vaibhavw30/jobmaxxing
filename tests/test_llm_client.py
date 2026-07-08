@@ -103,3 +103,19 @@ def test_tailor_falls_back_when_cli_errors(monkeypatch):
 
     monkeypatch.setattr(client, "call_provider", flaky)
     assert complete("tailor", MESSAGES, max_tokens=4000, config=_TAILOR_CONFIG) == "anthropic:ok"
+
+
+def test_forwards_temperature(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(client, "provider_available", lambda p: True)
+    monkeypatch.setattr(client, "call_provider", lambda p, m, msgs, **kw: captured.update(kw) or "ok")
+    complete("route", MESSAGES, max_tokens=50, config=CONFIG, temperature=0)
+    assert captured["temperature"] == 0
+
+
+def test_temperature_defaults_to_none(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(client, "provider_available", lambda p: True)
+    monkeypatch.setattr(client, "call_provider", lambda p, m, msgs, **kw: captured.update(kw) or "ok")
+    complete("route", MESSAGES, max_tokens=50, config=CONFIG)
+    assert captured.get("temperature") is None

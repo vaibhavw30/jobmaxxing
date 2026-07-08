@@ -209,3 +209,24 @@ def test_claude_cli_empty_output_raises(monkeypatch):
                         lambda cmd, **kw: _FakeProc(returncode=0, stdout="   \n"))
     with pytest.raises(RuntimeError, match="empty"):
         providers.call_provider("claude-cli", "sonnet", [{"role": "user", "content": "hi"}], max_tokens=10)
+
+
+def test_openai_includes_temperature_when_set(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setattr(openai, "OpenAI", _FakeOpenAIClient)
+    providers._openai_compatible("openai", "gpt-4o", [{"role": "user", "content": "hi"}], 50, None, None, 0)
+    assert _FakeOpenAIClient.last_call["temperature"] == 0
+
+
+def test_openai_omits_temperature_when_none(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setattr(openai, "OpenAI", _FakeOpenAIClient)
+    providers._openai_compatible("openai", "gpt-4o", [{"role": "user", "content": "hi"}], 50, None, None, None)
+    assert "temperature" not in _FakeOpenAIClient.last_call
+
+
+def test_anthropic_includes_temperature_when_set(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.setattr(anthropic, "Anthropic", _FakeAnthropicClient)
+    providers._anthropic("anthropic", "claude", [{"role": "user", "content": "hi"}], 50, None, None, 0)
+    assert _FakeAnthropicClient.last_call["temperature"] == 0

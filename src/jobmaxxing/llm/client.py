@@ -10,7 +10,7 @@ class LLMUnavailable(RuntimeError):
     """Raised when no configured LLM candidate could serve a request."""
 
 
-def complete(task, messages, *, max_tokens, response_format=None, cache=None, config=None) -> str:
+def complete(task, messages, *, max_tokens, response_format=None, cache=None, config=None, temperature=None) -> str:
     """Try each configured (provider, model) for `task` in order. Skip providers with no
     API key; fall through on any error. Raise LLMUnavailable if none succeed."""
     cfg = config if config is not None else load_llm_config()
@@ -26,7 +26,7 @@ def complete(task, messages, *, max_tokens, response_format=None, cache=None, co
         try:
             return call_provider(
                 provider, model, messages,
-                max_tokens=max_tokens, response_format=response_format, cache=cache,
+                max_tokens=max_tokens, response_format=response_format, cache=cache, temperature=temperature,
             )
         except ValueError:
             raise  # config/programming error (e.g. unknown provider) — surface it, don't mask as transient

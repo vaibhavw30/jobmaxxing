@@ -15,3 +15,7 @@ tasks:
     - {provider: claude-cli, model: sonnet}
     - {provider: anthropic, model: claude-sonnet-4-5-20250929}
     - {provider: openai, model: gpt-4o}
+  score:
+    - {provider: anthropic, model: claude-sonnet-4-5-20250929}  # API first: honors temperature=0 (reproducible delta)
+    - {provider: claude-cli, model: sonnet}                     # best-effort fallback (no temperature knob)
+    - {provider: openai, model: gpt-4o}

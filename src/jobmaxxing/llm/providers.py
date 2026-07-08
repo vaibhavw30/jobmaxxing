@@ -24,7 +24,7 @@ def provider_available(provider: str) -> bool:
     return bool(os.environ.get(PROVIDER_KEYS.get(provider, "")))
 
 
-def _openai_compatible(provider, model, messages, max_tokens, response_format, cache=None):
+def _openai_compatible(provider, model, messages, max_tokens, response_format, cache=None, temperature=None):
     init: dict = {"api_key": os.environ[PROVIDER_KEYS[provider]]}
     base_url = PROVIDER_BASE_URLS.get(provider)
     if base_url:
@@ -35,11 +35,13 @@ def _openai_compatible(provider, model, messages, max_tokens, response_format, c
     call: dict = {"model": model, "messages": messages, "max_tokens": max_tokens}
     if response_format:
         call["response_format"] = response_format
+    if temperature is not None:
+        call["temperature"] = temperature
     resp = client.chat.completions.create(**call)
     return resp.choices[0].message.content
 
 
-def _anthropic(provider, model, messages, max_tokens, response_format, cache=None):
+def _anthropic(provider, model, messages, max_tokens, response_format, cache=None, temperature=None):
     client = anthropic.Anthropic(api_key=os.environ[PROVIDER_KEYS[provider]])
     system_text = "\n".join(m["content"] for m in messages if m["role"] == "system")
     convo = [m for m in messages if m["role"] != "system"]
@@ -51,12 +53,10 @@ def _anthropic(provider, model, messages, max_tokens, response_format, cache=Non
         # Use the SDK's NOT_GIVEN sentinel when there is no system prompt: passing None
         # would serialize as "system": null, which the Anthropic API rejects.
         system = system_text if system_text else anthropic.NOT_GIVEN
-    resp = client.messages.create(
-        model=model,
-        system=system,
-        messages=convo,
-        max_tokens=max_tokens,
-    )
+    kwargs = {"model": model, "system": system, "messages": convo, "max_tokens": max_tokens}
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    resp = client.messages.create(**kwargs)
     return resp.content[0].text
 
 
@@ -75,14 +75,15 @@ _API_BILLING_ENV_VARS = {PROVIDER_KEYS["anthropic"], "ANTHROPIC_AUTH_TOKEN"}
 _CLAUDE_CLI_ALLOWED_TOOLS = "Glob"
 
 
-def _claude_cli(provider, model, messages, max_tokens, response_format, cache=None):
+def _claude_cli(provider, model, messages, max_tokens, response_format, cache=None, temperature=None):
     """Complete via the local `claude -p` CLI on the user's Claude subscription.
 
     Single-shot: system messages -> --system-prompt; cache (the base résumé) + non-system
     messages -> the stdin prompt. response_format and max_tokens have no CLI knob and are
     intentionally ignored (callers parse leniently, same as the Anthropic adapter); `provider`
-    is unused, present only for adapter-protocol uniformity. API-billing credentials are
-    stripped from the child env so the CLI authenticates with the subscription, not the API.
+    is unused, present only for adapter-protocol uniformity. temperature is also ignored
+    (claude -p has no temperature knob). API-billing credentials are stripped from the child env
+    so the CLI authenticates with the subscription, not the API.
     """
     system_text = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
     prompt_parts = ([cache] if cache else []) + [m["content"] for m in messages if m["role"] != "system"]
@@ -116,9 +117,9 @@ _ADAPTERS = {
 }
 
 
-def call_provider(provider, model, messages, *, max_tokens, response_format=None, cache=None) -> str:
+def call_provider(provider, model, messages, *, max_tokens, response_format=None, cache=None, temperature=None) -> str:
     """Dispatch one completion to a provider. Raises if the provider is unknown or the SDK errors."""
     adapter = _ADAPTERS.get(provider)
     if adapter is None:
         raise ValueError(f"unknown provider: {provider!r}")
-    return adapter(provider, model, messages, max_tokens, response_format, cache)
+    return adapter(provider, model, messages, max_tokens, response_format, cache, temperature)

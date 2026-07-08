@@ -53,3 +53,10 @@ def test_tailor_and_review_prefer_claude_cli():
         assert any(c["provider"] == "anthropic" for c in cands[1:]), f"{task} keeps an API fallback"
     # route must NOT use claude-cli (CI has no subscription; stays API)
     assert all(c["provider"] != "claude-cli" for c in candidates_for("route", cfg))
+
+
+def test_score_tier_prefers_anthropic_api():
+    from jobmaxxing.llm.config import candidates_for, load_llm_config
+    cands = candidates_for("score", load_llm_config())
+    assert cands[0]["provider"] == "anthropic"          # API first -> temperature honored
+    assert any(c["provider"] == "claude-cli" for c in cands)  # subscription fallback present
