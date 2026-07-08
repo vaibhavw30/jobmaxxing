@@ -34,7 +34,9 @@ def _insert(conn, *, status, resume_type="swe", description="needs kubernetes an
 
 
 def _fake_complete(task, messages, **kw):
-    # build/patch/shrink return tex; critique returns JSON
+    # build/patch/shrink return tex; critique returns JSON; score returns the 4 qualitative axes
+    if task == "score":
+        return '{"technical_depth": 6, "impact": 5, "ats": 8, "relevance_order": 7}'
     if task == "review" and kw.get("response_format"):
         return '{"weaknesses": ["w1", "w2", "w3"], "missing_keywords": ["kafka"]}'
     return r"\documentclass{article}\begin{document} python kubernetes \end{document}"
@@ -58,6 +60,8 @@ def test_tailor_job_writes_artifacts_and_marks_tailored(conn):
     saved = json.loads(store.artifacts[(str(job_id), "review.json")])
     assert "static" in saved["score_after"] and saved["weaknesses"] == ["w1", "w2", "w3"]
     assert review["missing_keywords"] == ["kafka"]
+    assert "composite" in saved["score_after"] and "keyword_coverage" in saved["score_after"]["axes"]
+    assert "composite" in review["delta"]
     row = conn.execute("select status, artifact_prefix, score_after from jobs where id=%s", (job_id,)).fetchone()
     assert row[0] == "tailored"
     assert row[1] == store.artifact_prefix(job_id)

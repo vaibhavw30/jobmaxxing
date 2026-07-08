@@ -29,7 +29,7 @@ def _covered(text_norm: str, term: str, aliases: dict) -> bool:
     return False
 
 
-def score(resume_text: str, jd_text: str, rubric: dict) -> dict:
+def score_keywords(resume_text: str, jd_text: str, rubric: dict) -> dict:
     """Deterministic keyword coverage. Returns {static, dynamic, matched, missing}.
 
     - static:  fraction of the rubric's keyword_dict terms present in the résumé.
@@ -56,12 +56,30 @@ def score(resume_text: str, jd_text: str, rubric: dict) -> dict:
     return {"static": static, "dynamic": dynamic, "matched": in_resume, "missing": missing}
 
 
+_AXES = ("keyword_coverage", "technical_depth", "impact", "ats", "relevance_order")
+
+
+def score(resume_text: str, jd_text: str, rubric: dict, *, complete) -> dict:
+    """Full five-axis score: deterministic keyword coverage + four LLM-graded axes + weighted composite.
+    A superset of score_keywords() (static/dynamic/matched/missing preserved), plus `axes` and `composite`."""
+    kw = score_keywords(resume_text, jd_text, rubric)
+    qual = score_qualitative(resume_text, jd_text, rubric, complete=complete)
+    axes = {"keyword_coverage": round(10 * kw["dynamic"], 4), **qual}
+    weights = rubric.get("weights") or {a: 0.2 for a in _AXES}
+    composite = round(sum(weights.get(a, 0.0) * axes[a] for a in _AXES), 2)
+    return {**kw, "axes": axes, "composite": composite}
+
+
 def delta(before: dict, after: dict) -> dict:
-    """after - before on the two coverage axes (rounded to 10 decimal places)."""
-    return {
+    """after - before: keyword coverage (static/dynamic), the composite, and each 0-10 axis."""
+    out = {
         "static": round(after["static"] - before["static"], 10),
         "dynamic": round(after["dynamic"] - before["dynamic"], 10),
+        "composite": round(after.get("composite", 0.0) - before.get("composite", 0.0), 2),
     }
+    ba, aa = before.get("axes", {}), after.get("axes", {})
+    out["axes"] = {a: round(aa.get(a, 0.0) - ba.get(a, 0.0), 2) for a in _AXES}
+    return out
 
 
 _QUAL_AXES = ("technical_depth", "impact", "ats", "relevance_order")

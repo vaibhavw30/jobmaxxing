@@ -31,7 +31,7 @@ def tailor_job(conn, job_id, *, store, complete, compile_fn, rubric_loader=load_
     base_tex = store.get_base_resume(resume_type)
     rubric = rubric_loader(resume_type)
 
-    before = score(base_tex, jd or "", rubric)                        # Pass 0
+    before = score(base_tex, jd or "", rubric, complete=complete)     # Pass 0
     tailored = build_tailored(base_tex, jd or "", complete=complete)   # Pass 1
     critique = critique_resume(tailored, jd or "", complete=complete)  # Pass 2a
     patched = apply_critique(tailored, critique, jd or "", complete=complete)  # Pass 2b
@@ -42,7 +42,7 @@ def tailor_job(conn, job_id, *, store, complete, compile_fn, rubric_loader=load_
         shrink_fn=lambda tex, pages: shrink_to_one_page(tex, pages, complete=complete),
     )
     final_tex = one_page.tex
-    after = score(final_tex, jd or "", rubric)                        # Pass 4
+    after = score(final_tex, jd or "", rubric, complete=complete)     # Pass 4
 
     review = {
         "score_before": before,
