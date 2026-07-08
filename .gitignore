@@ -16,3 +16,6 @@ logs/
 
 # Raw email drops (LinkedIn alert samples) — contain PII/tracking tokens; never commit. Scrubbed fixtures live in tests/fixtures/.
 /*.eml
+
+# Tailoring artifacts (contain résumé content) — never commit; regenerated per job.
+resume_store/tailored/
