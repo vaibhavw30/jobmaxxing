@@ -45,3 +45,20 @@ def test_discover_is_failsoft_on_a_bad_message(conn):
     report = discover_gmail_alerts(conn, fetch=lambda: [FIXTURE, b"junk"], now=now)
     assert report["messages"] == 2
     assert conn.execute("select count(*) from jobs").fetchone()[0] == 6
+
+
+def test_discover_records_error_and_continues_when_ingest_raises(conn, monkeypatch):
+    import jobmaxxing.discovery.gmail_source as gs
+    calls = {"n": 0}
+    real = gs.ingest_records
+    def flaky(c, records, now):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("boom-ingest")
+        return real(c, records, now)
+    monkeypatch.setattr(gs, "ingest_records", flaky)
+    now = datetime(2026, 7, 8, tzinfo=timezone.utc)
+    report = discover_gmail_alerts(conn, fetch=lambda: [FIXTURE, FIXTURE], now=now)
+    assert report["messages"] == 2
+    assert len(report["errors"]) == 1 and "boom-ingest" in report["errors"][0]
+    assert conn.execute("select count(*) from jobs").fetchone()[0] == 6
