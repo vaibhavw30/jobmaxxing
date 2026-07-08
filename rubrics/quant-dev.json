@@ -1,4 +1,5 @@
 {
   "keyword_dict": ["low-latency", "c++", "market data", "backtesting", "time-series", "order book", "systems programming", "multithreading", "linux"],
-  "aliases": {"c++": ["cpp", "c plus plus"], "low-latency": ["low latency"], "time-series": ["time series"]}
+  "aliases": {"c++": ["cpp", "c plus plus"], "low-latency": ["low latency"], "time-series": ["time series"]},
+  "weights": {"keyword_coverage": 0.3, "technical_depth": 0.3, "impact": 0.2, "ats": 0.1, "relevance_order": 0.1}
 }

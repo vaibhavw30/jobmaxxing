@@ -1,4 +1,5 @@
 {
   "keyword_dict": ["sensor fusion", "slam", "motion planning", "lidar", "perception", "localization", "safety-critical", "kalman filter", "point cloud"],
-  "aliases": {"safety-critical": ["safety critical"], "lidar": ["lidars"]}
+  "aliases": {"safety-critical": ["safety critical"], "lidar": ["lidars"]},
+  "weights": {"keyword_coverage": 0.3, "technical_depth": 0.3, "impact": 0.1, "ats": 0.2, "relevance_order": 0.1}
 }

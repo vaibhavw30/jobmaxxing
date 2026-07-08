@@ -1,4 +1,5 @@
 {
   "keyword_dict": ["large language model", "llm", "agentic", "rag", "fine-tuning", "prompt engineering", "retrieval augmented", "embeddings", "inference"],
-  "aliases": {"large language model": ["llms"], "fine-tuning": ["fine tuning", "finetuning"], "retrieval augmented": ["retrieval-augmented"]}
+  "aliases": {"large language model": ["llms"], "fine-tuning": ["fine tuning", "finetuning"], "retrieval augmented": ["retrieval-augmented"]},
+  "weights": {"keyword_coverage": 0.2, "technical_depth": 0.3, "impact": 0.1, "ats": 0.1, "relevance_order": 0.3}
 }

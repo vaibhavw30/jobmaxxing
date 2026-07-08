@@ -1,4 +1,5 @@
 {
   "keyword_dict": ["python", "java", "distributed systems", "api", "rest", "microservices", "ci/cd", "scalability", "kubernetes", "sql"],
-  "aliases": {"ci/cd": ["cicd", "continuous integration"], "api": ["apis"], "kubernetes": ["k8s"]}
+  "aliases": {"ci/cd": ["cicd", "continuous integration"], "api": ["apis"], "kubernetes": ["k8s"]},
+  "weights": {"keyword_coverage": 0.3, "technical_depth": 0.2, "impact": 0.1, "ats": 0.3, "relevance_order": 0.1}
 }

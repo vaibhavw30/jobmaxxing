@@ -1,4 +1,5 @@
 {
   "keyword_dict": ["machine learning", "training", "inference", "pytorch", "tensorflow", "xgboost", "feature engineering", "model evaluation", "data pipeline"],
-  "aliases": {"machine learning": ["ml"]}
+  "aliases": {"machine learning": ["ml"]},
+  "weights": {"keyword_coverage": 0.2, "technical_depth": 0.3, "impact": 0.3, "ats": 0.1, "relevance_order": 0.1}
 }
