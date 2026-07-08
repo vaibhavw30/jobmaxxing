@@ -6,10 +6,12 @@ network, so this module imports with nothing beyond the base install and tests n
 
 import email
 import logging
+import os
 import re
 
 from ..models import JobRecord
 from ..normalize import make_dedupe_key
+from ..pipeline import ingest_records
 
 logger = logging.getLogger(__name__)
 
@@ -87,3 +89,38 @@ def parse_linkedin_alert(raw_email: bytes) -> list[JobRecord]:
             dedupe_key=make_dedupe_key(company, title),
         ))
     return records
+
+
+def load_gmail_config() -> dict:
+    """Read Gmail IMAP settings from the environment (mirrors sheets/client.py). Missing required
+    GMAIL_ADDRESS / GMAIL_APP_PASSWORD -> RuntimeError."""
+    address = os.environ.get("GMAIL_ADDRESS")
+    app_password = os.environ.get("GMAIL_APP_PASSWORD")
+    if not address or not app_password:
+        raise RuntimeError(
+            "GMAIL_ADDRESS and GMAIL_APP_PASSWORD must be set (Gmail App Password over IMAP). "
+            "See the 'Gmail LinkedIn alerts' section of the README.")
+    return {
+        "address": address,
+        "app_password": app_password,
+        "sender": os.environ.get("GMAIL_ALERT_SENDER", "jobalerts-noreply@linkedin.com"),
+        "since_days": int(os.environ.get("GMAIL_SINCE_DAYS", "7")),
+        "host": os.environ.get("GMAIL_IMAP_HOST", "imap.gmail.com"),
+    }
+
+
+def discover_gmail_alerts(conn, *, fetch, now) -> dict:
+    """Fetch raw alert emails via the injected fetch fn, parse + ingest each. Fail-soft per message:
+    a parse/ingest error on one email is caught, logged, recorded; the rest still process."""
+    raw_msgs = fetch()
+    parsed = 0
+    errors = []
+    for raw in raw_msgs:
+        try:
+            records = parse_linkedin_alert(raw)
+            ingest_records(conn, records, now=now)
+            parsed += len(records)
+        except Exception as exc:  # fail-soft: one bad email never blocks the rest
+            logger.warning("gmail alert message failed: %s", exc)
+            errors.append(str(exc))
+    return {"messages": len(raw_msgs), "parsed": parsed, "errors": errors}
