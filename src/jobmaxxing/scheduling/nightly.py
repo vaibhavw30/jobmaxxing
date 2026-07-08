@@ -19,8 +19,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_S = 1800  # 30 min per worker
 
-# The four residential-IP workers, in dependency order (discover new -> fill JDs -> recover -> verify).
-WORKER_NAMES = ["discover_jobspy", "enrich_workday", "recover_jd", "verify_url"]
+# The residential-IP workers, in dependency order (ingest LinkedIn alerts -> discover -> fill JDs ->
+# recover -> verify). discover_gmail is pure ingestion, so it runs first.
+WORKER_NAMES = ["discover_gmail", "discover_jobspy", "enrich_workday", "recover_jd", "verify_url"]
 
 
 def default_workers():

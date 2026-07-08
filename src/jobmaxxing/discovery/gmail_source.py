@@ -5,10 +5,15 @@ network, so this module imports with nothing beyond the base install and tests n
 """
 
 import email
+import imaplib
 import logging
 import os
 import re
+from datetime import datetime, timedelta, timezone
 
+import psycopg
+
+from ..config import load_settings
 from ..models import JobRecord
 from ..normalize import make_dedupe_key
 from ..pipeline import ingest_records
@@ -124,3 +129,45 @@ def discover_gmail_alerts(conn, *, fetch, now) -> dict:
             logger.warning("gmail alert message failed: %s", exc)
             errors.append(str(exc))
     return {"messages": len(raw_msgs), "parsed": parsed, "errors": errors}
+
+
+def _imap_fetch(*, host, address, app_password, sender, since_days) -> list[bytes]:
+    """The ONLY network code: fetch raw alert emails from Gmail over IMAP (FROM <sender> SINCE now-N
+    days). Returns raw RFC822 bytes per message. Untested side-effect (operator validates first run)."""
+    since = (datetime.now(timezone.utc) - timedelta(days=since_days)).strftime("%d-%b-%Y")
+    raw_msgs = []
+    imap = imaplib.IMAP4_SSL(host)
+    try:
+        imap.login(address, app_password)
+        imap.select("INBOX")
+        typ, data = imap.search(None, "FROM", sender, "SINCE", since)
+        if typ != "OK":
+            return []
+        for num in data[0].split():
+            typ, msg_data = imap.fetch(num, "(RFC822)")
+            if typ == "OK" and msg_data and msg_data[0]:
+                raw_msgs.append(msg_data[0][1])
+    finally:
+        try:
+            imap.logout()
+        except Exception:
+            pass
+    return raw_msgs
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    settings = load_settings()
+    cfg = load_gmail_config()
+    now = datetime.now(timezone.utc)
+    with psycopg.connect(settings.database_url) as conn:
+        report = discover_gmail_alerts(
+            conn,
+            fetch=lambda: _imap_fetch(
+                host=cfg["host"], address=cfg["address"], app_password=cfg["app_password"],
+                sender=cfg["sender"], since_days=cfg["since_days"]),
+            now=now,
+        )
+    logger.info("gmail discovery report: %s", report)
+    print(f"gmail discovery: {report['messages']} messages, {report['parsed']} postings parsed, "
+          f"{len(report['errors'])} errors")

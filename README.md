@@ -223,6 +223,28 @@ US-wide + remote, `job_type: internship`), scrapes each (site, term), and ingest
 site/term getting rate-limited never blocks the rest. Space out runs to avoid 429s (LinkedIn is the
 touchiest — its `results_wanted` is kept small).
 
+### Gmail LinkedIn alerts (local, operator-run)
+
+Ingest your LinkedIn **saved-search job-alert emails** into the `jobs` table — the only LinkedIn channel
+the pipeline touches (no logged-in scraping). **Run LOCALLY**: it reads your inbox over IMAP with a Gmail
+App Password, which stays in your local `.env` and never in CI.
+
+One-time setup:
+1. Create LinkedIn saved searches (one per role) with **daily email alerts**.
+2. Turn on 2-Step Verification, then mint a Gmail **App Password** at
+   https://myaccount.google.com/apppasswords and enable IMAP (Gmail Settings > Forwarding and POP/IMAP).
+3. Set `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD` in `.env` (see `.env.example`).
+
+Run:
+
+    uv run python -m jobmaxxing.discover_gmail
+
+It fetches alert emails from the last `GMAIL_SINCE_DAYS` (default 7), parses each listed posting into a
+link-only row (`source=gmail:linkedin-alert`, `term=<saved-search phrase>`, no JD), and ingests via the
+shared dedupe/upsert. Rows are routable on title and get a real description later if the same job arrives
+from an ATS/GitHub source. Fail-soft (one bad email never blocks the rest) and idempotent (re-reads a
+rolling window each run). It also runs automatically as the first worker in the nightly scheduler.
+
 ### URL verification (local)
 
 `uv run python -m jobmaxxing.verify_url` checks that the in-window triaged jobs' posting URLs still
@@ -236,10 +258,10 @@ days; a dead row stays dead (verify_attempts hits the cap) until re-run with a h
 
 ### Nightly scheduling (local, macOS)
 
-Run the four residential-IP workers automatically once a night via launchd — "the production cron."
-At 12am local time it runs, in order, `discover_jobspy` → `enrich_workday` → `recover_jd` → `verify_url`
-(sequentially, so only one worker uses your home IP at a time), then posts one macOS notification with a
-recap. Nothing here runs in CI.
+Run the residential-IP workers automatically once a night via launchd — "the production cron."
+At 12am local time it runs, in order, `discover_gmail` → `discover_jobspy` → `enrich_workday` →
+`recover_jd` → `verify_url` (sequentially, so only one worker uses your home IP at a time), then posts one
+macOS notification with a recap. Nothing here runs in CI.
 
 One-time setup:
 
