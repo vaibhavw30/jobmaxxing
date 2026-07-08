@@ -1,10 +1,11 @@
 import os
-import re
 import shutil
 import subprocess
 
 import anthropic
 import openai
+
+from .text import strip_code_fence
 
 PROVIDER_KEYS = {
     "openai": "OPENAI_API_KEY",
@@ -73,15 +74,6 @@ _API_BILLING_ENV_VARS = {PROVIDER_KEYS["anthropic"], "ANTHROPIC_AUTH_TOKEN"}
 # tries to make the CLI run a tool on the operator's machine; a denylist leaks via Agent.
 _CLAUDE_CLI_ALLOWED_TOOLS = "Glob"
 
-_CODE_FENCE = re.compile(r"\A```[^\n]*\n(.*)\n```\s*\Z", re.DOTALL)
-
-
-def _strip_code_fence(text: str) -> str:
-    """Drop a single surrounding markdown code fence if the CLI wrapped the output. LaTeX/JSON
-    outputs never start with ``` so this only fires on a genuine wrapper (a broken .tex otherwise)."""
-    m = _CODE_FENCE.match(text)
-    return m.group(1).strip() if m else text
-
 
 def _claude_cli(provider, model, messages, max_tokens, response_format, cache=None):
     """Complete via the local `claude -p` CLI on the user's Claude subscription.
@@ -113,7 +105,7 @@ def _claude_cli(provider, model, messages, max_tokens, response_format, cache=No
     out = proc.stdout.strip()
     if not out:
         raise RuntimeError("claude -p returned empty output")
-    return _strip_code_fence(out)
+    return strip_code_fence(out)
 
 
 _ADAPTERS = {

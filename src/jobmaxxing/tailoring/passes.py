@@ -1,6 +1,8 @@
 import json
 import re
 
+from ..llm.text import strip_code_fence
+
 _JSON_OBJ = re.compile(r"\{.*\}", re.DOTALL)
 
 _REVIEW_SYSTEM = (
@@ -30,7 +32,7 @@ def build_tailored(base_tex: str, jd: str, *, complete) -> str:
         {"role": "system", "content": _TAILOR_SYSTEM},
         {"role": "user", "content": f"Job description:\n{jd}\n\nProduce the full tailored LaTeX résumé."},
     ]
-    return complete("tailor", messages, max_tokens=4000, cache=base_tex)
+    return strip_code_fence(complete("tailor", messages, max_tokens=4000, cache=base_tex))
 
 
 def parse_critique(text) -> dict:
@@ -89,7 +91,7 @@ def apply_critique(tailored_tex: str, critique: dict, jd: str, *, complete) -> s
             f"Current résumé (LaTeX):\n{tailored_tex}"
         )},
     ]
-    return complete("review", messages, max_tokens=4000)
+    return strip_code_fence(complete("review", messages, max_tokens=4000))
 
 
 def shrink_to_one_page(tex: str, page_count: int, *, complete) -> str:
@@ -98,4 +100,4 @@ def shrink_to_one_page(tex: str, page_count: int, *, complete) -> str:
         {"role": "system", "content": _SHRINK_SYSTEM},
         {"role": "user", "content": f"The résumé compiled to {page_count} pages. Cut it to one page.\n\n{tex}"},
     ]
-    return complete("tailor", messages, max_tokens=4000)
+    return strip_code_fence(complete("tailor", messages, max_tokens=4000))

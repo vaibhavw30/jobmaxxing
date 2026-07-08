@@ -28,3 +28,16 @@ def test_shrink_to_one_page_mentions_page_count():
     assert out == r"\documentclass...SHORTER"
     assert captured["task"] == "tailor"             # shrink uses the tailor (writer) task
     assert "2" in captured["user"]                  # tells the model how many pages it overflowed to
+
+
+def test_apply_critique_strips_code_fence():
+    def fake_complete(task, messages, *, max_tokens, cache=None, **kw):
+        return "```latex\n\\documentclass{article}\nPATCHED\n```"
+    out = apply_critique("TEX", {"weaknesses": [], "missing_keywords": []}, "JD", complete=fake_complete)
+    assert out == "\\documentclass{article}\nPATCHED" and "```" not in out
+
+def test_shrink_to_one_page_strips_code_fence():
+    def fake_complete(task, messages, *, max_tokens, cache=None, **kw):
+        return "```\n\\documentclass{article}\nSHORTER\n```"
+    out = shrink_to_one_page("TEX", 2, complete=fake_complete)
+    assert out == "\\documentclass{article}\nSHORTER" and "```" not in out

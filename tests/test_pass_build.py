@@ -15,3 +15,11 @@ def test_build_tailored_passes_cache_and_jd():
     assert captured["task"] == "tailor"
     assert captured["cache"] == "BASE TEX"             # base resume prompt-cached
     assert "Kubernetes" in captured["user"]            # JD passed in the user message
+
+
+def test_build_tailored_strips_code_fence():
+    def fake_complete(task, messages, *, max_tokens, cache=None, **kw):
+        return "```latex\n\\documentclass{article}\nTAILORED\n```"
+    out = build_tailored("BASE", "JD", complete=fake_complete)
+    assert out == "\\documentclass{article}\nTAILORED"
+    assert "```" not in out
