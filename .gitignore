@@ -13,3 +13,6 @@ secrets/
 .DS_Store
 **/.DS_Store
 logs/
+
+# Raw email drops (LinkedIn alert samples) — contain PII/tracking tokens; never commit. Scrubbed fixtures live in tests/fixtures/.
+/*.eml

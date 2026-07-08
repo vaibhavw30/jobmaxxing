@@ -17,6 +17,33 @@ token expiry. This deliberately avoids the Google-OAuth wall that killed the ear
 target. Everything is **stdlib** — `imaplib` (fetch) + `email` (MIME) + `re` (parse). **No new
 dependency, no `pyproject.toml` change, no `gmail` extra.**
 
+**Confirmed against the real sample (`Machine Learning Engineer Intern - Planning at PlusAI.eml`, 6 job
+cards):** four precise details, folded into the design below.
+1. **The `text/plain` part is `quoted-printable`.** It MUST be decoded via the email lib
+   (`part.get_payload(decode=True).decode(charset)`), never read as raw lines — job cards wrap across QP
+   soft breaks (e.g. a title `… - 20=\n26 Summer (BS/MS)` decodes to one line; the header line ends `Area=\n`
+   and continues into `Manage your job alerts`). Decoding collapses all of these before parsing.
+2. **Term regex** = `Your job alert for (.+?) in ` → `"software engineer intern"` (the header runs straight
+   into `Manage your job alerts:` with no separator, so match non-greedily up to ` in `). Confirms the
+   subject (`…at PlusAI`) is NOT the term.
+3. **The first block bleeds the digest header + job #1** (the first `-{10,}` separator comes *after* job 1).
+   The "last three non-excluded lines → title/company/location" rule handles it: after excluding the
+   `^Your job alert for` line, the social-proof line, and the `View job:` line, exactly title/company/
+   location remain.
+4. **Fixture scrubbing (supersedes "lightly scrubbed footer" below).** The committed
+   `tests/fixtures/linkedin_alert.eml` is a **minimal, faithful, scrubbed** email: keep the real
+   `text/plain` structure + all 6 cards' *public* data (titles, companies, locations, `jobs/view/<id>`
+   ids) + the QP quirks (incl. the job-6 title wrap and the header→"Manage" run-on) + a representative
+   `?trackingId=…&midToken=…&otpToken=…` query on each `View job:` URL with **neutered dummy values** (so
+   the parser still proves it strips the `/comm/` redirect and the whole query). STRIP: every
+   crypto/routing header (DKIM-Signature, ARC-*, Received, Return-Path bounce address, Feedback-ID,
+   X-LinkedIn-fbl/-Id, List-Unsubscribe token, Require-Recipient-Valid-Since); replace the recipient
+   address (`To`/`Delivered-To`) with `operator@example.com`; replace the "This email was intended for
+   <name> (<bio>)" footer line with a generic placeholder; replace the ~3,400-line `text/html` part with a
+   one-line stub. Job-IDs and company names are PUBLIC posting data (not operator PII), so they stay —
+   they are the ground truth the tests assert on. Keep a valid `multipart/alternative` structure
+   (text/plain + stub text/html) so `email.message_from_bytes` walks it exactly like the real thing.
+
 ## Goal
 `python -m jobmaxxing.discover_gmail` — a local, operator-run, fail-soft worker that fetches recent
 LinkedIn job-alert emails over IMAP, parses each listed posting into a `JobRecord`, and ingests via the
@@ -70,8 +97,16 @@ From `LinkedIn Job Alerts <jobalerts-noreply@linkedin.com>`, subject = the first
 - **`src/jobmaxxing/discover_gmail.py`** (new) — CLI shim: `from .discovery.gmail_source import main`.
 - **`src/jobmaxxing/scheduling/nightly.py`** — add `"discover_gmail"` to `WORKER_NAMES` (5th worker) so it
   runs in the nightly batch. (Order: it's pure ingestion; place it first, before the scrapers.)
-- **`tests/fixtures/linkedin_alert.eml`** — the operator's real sample, lightly scrubbed (the
-  "intended for …" footer line) but with the 6 job cards intact.
+- **`tests/fixtures/linkedin_alert.eml`** — the operator's real sample, **scrubbed per the four-point
+  "Fixture scrubbing" rule in Context above** (all PII/tracking headers + recipient + footer name + the
+  HTML part removed; the 6 job cards' public data + QP structure intact). The 6 ground-truth jobs are:
+  (1) `Machine Learning Engineer Intern - Planning` / PlusAI / Santa Clara, CA / id `4414359267`;
+  (2) `Software Engineer Intern (Global SRE) - 2026 Summer (BS/MS)` / TikTok / San Jose, CA / `4359034720`;
+  (3) `Software Engineer Intern (Ads Infrastructure) - 2026 Summer (BS/MS)` / TikTok / San Jose, CA / `4359064279`;
+  (4) `AI Infra Onboard Performance Intern` / XPENG / Santa Clara, CA / `4437144020`;
+  (5) `PhD Software Engineering Intern, Decision Intelligence - Fall 2026` / NVIDIA / Santa Clara, CA / `4417503978`;
+  (6) `Frontend Software Engineer Intern (Ads Measurement Signal and Privacy) - 2026 Summer (BS/MS)` / TikTok / San Jose, CA / `4359022183`.
+  Term (saved-search phrase) = `software engineer intern`.
 - **`.env.example`** — a "Gmail LinkedIn-alert parser (local `discover_gmail` worker)" block documenting
   `GMAIL_ADDRESS` / `GMAIL_APP_PASSWORD` (+ the optional overrides) and how to mint an App Password.
 - **`README.md`** — a "Gmail LinkedIn alerts (local, operator-run)" section (setup + run).
