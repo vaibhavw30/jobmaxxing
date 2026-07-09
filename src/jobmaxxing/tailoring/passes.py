@@ -4,6 +4,24 @@ import re
 from ..llm.text import strip_code_fence
 
 _JSON_OBJ = re.compile(r"\{.*\}", re.DOTALL)
+_DOC_START = r"\documentclass"
+_DOC_END = r"\end{document}"
+
+
+def _extract_latex(text: str) -> str:
+    """Get compilable LaTeX out of a model response: strip a wrapping code fence, then — if a full
+    document is present — return exactly the ``\\documentclass … \\end{document}`` span, discarding any
+    prose the model added before (e.g. a '# Analysis' preamble) or after (trailing commentary). If no
+    ``\\documentclass`` is present, return the fence-stripped text unchanged (a fragment/prose then fails
+    compilation loudly rather than being silently mangled)."""
+    text = strip_code_fence(text)
+    start = text.find(_DOC_START)
+    if start == -1:
+        return text
+    end = text.rfind(_DOC_END)
+    if end == -1:
+        return text[start:].strip()
+    return text[start:end + len(_DOC_END)].strip()
 
 _REVIEW_SYSTEM = (
     "You are two reviewers of a LaTeX résumé against a job description.\n"
@@ -32,7 +50,7 @@ def build_tailored(base_tex: str, jd: str, *, complete) -> str:
         {"role": "system", "content": _TAILOR_SYSTEM},
         {"role": "user", "content": f"Job description:\n{jd}\n\nProduce the full tailored LaTeX résumé."},
     ]
-    return strip_code_fence(complete("tailor", messages, max_tokens=4000, cache=base_tex))
+    return _extract_latex(complete("tailor", messages, max_tokens=4000, cache=base_tex))
 
 
 def parse_critique(text) -> dict:
@@ -91,7 +109,7 @@ def apply_critique(tailored_tex: str, critique: dict, jd: str, *, complete) -> s
             f"Current résumé (LaTeX):\n{tailored_tex}"
         )},
     ]
-    return strip_code_fence(complete("review", messages, max_tokens=4000))
+    return _extract_latex(complete("review", messages, max_tokens=4000))
 
 
 def shrink_to_one_page(tex: str, page_count: int, *, complete) -> str:
@@ -100,4 +118,4 @@ def shrink_to_one_page(tex: str, page_count: int, *, complete) -> str:
         {"role": "system", "content": _SHRINK_SYSTEM},
         {"role": "user", "content": f"The résumé compiled to {page_count} pages. Cut it to one page.\n\n{tex}"},
     ]
-    return strip_code_fence(complete("tailor", messages, max_tokens=4000))
+    return _extract_latex(complete("tailor", messages, max_tokens=4000))
