@@ -22,19 +22,42 @@ _WORKDAY_RE = re.compile(
     r"(?P<site>[^/]+)/job/(?P<rest>.+)$"
 )
 
+# https://{wd}.myworkdaysite.com/[xx-XX/]recruiting/{tenant}/{site}/job/{rest}
+# A second, functionally-equivalent Workday public domain: same cxs API, tenant lives in the
+# path instead of the hostname. Verified live (2026-07-08): the derived cxs URL for real
+# myworkdaysite.com postings (Magna, Snap, Microchip Technology) returns the identical
+# Cloudflare-gate error shape a normal myworkdayjobs.com tenant returns from an uncleared
+# context -- i.e. the SAME endpoint, reachable via the SAME tiered fetch below.
+_WORKDAY_SITE_RE = re.compile(
+    r"https://(?P<wd>wd\d+)\.myworkdaysite\.com/"
+    r"(?:[a-z]{2}-[A-Z]{2}/)?"             # optional locale prefix, stripped
+    r"recruiting/(?P<tenant>[^/]+)/(?P<site>[^/]+)/job/(?P<rest>.+)$"
+)
+
+
+def _match_workday(url: str) -> dict | None:
+    """Try both recognized Workday URL shapes; return {tenant, wd, site, rest} from whichever
+    matches, or None. Both shapes resolve to the identical downstream identity/cxs URL."""
+    m = _WORKDAY_RE.match(url)
+    if m:
+        return m.groupdict()
+    m = _WORKDAY_SITE_RE.match(url)
+    return m.groupdict() if m else None
+
 
 def workday_host(url: str) -> str | None:
-    m = _WORKDAY_RE.match(url)
-    return f"{m.group('tenant')}.{m.group('wd')}.myworkdayjobs.com" if m else None
+    g = _match_workday(url)
+    return f"{g['tenant']}.{g['wd']}.myworkdayjobs.com" if g else None
 
 
 def workday_cxs_url(url: str) -> str | None:
-    """Translate a Workday job URL to its cxs JSON endpoint, or None if unrecognized."""
-    m = _WORKDAY_RE.match(url)
-    if not m:
+    """Translate a Workday job URL (either recognized public-domain shape) to its cxs JSON
+    endpoint, or None if unrecognized."""
+    g = _match_workday(url)
+    if not g:
         return None
-    t, wd, site, rest = m.group("tenant"), m.group("wd"), m.group("site"), m.group("rest")
-    return f"https://{t}.{wd}.myworkdayjobs.com/wday/cxs/{t}/{site}/job/{rest}"
+    return (f"https://{g['tenant']}.{g['wd']}.myworkdayjobs.com/wday/cxs/"
+            f"{g['tenant']}/{g['site']}/job/{g['rest']}")
 
 
 def parse_workday(payload: dict) -> str | None:
@@ -129,7 +152,7 @@ def enrich_workday(conn, *, max_jobs=300, max_workers=3, cap=3, fetcher_factory=
         "where coalesce(description, '') = '' "
         "and route_method is distinct from 'manual' "
         "and enrich_attempts < %s "
-        "and url ~* 'myworkdayjobs\\.com' "
+        "and url ~* 'myworkdayjobs\\.com|myworkdaysite\\.com' "
         "order by scraped_at desc "
         "limit %s",
         (cap, max_jobs),

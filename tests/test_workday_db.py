@@ -128,3 +128,14 @@ def test_cli_shim_exposes_main():
     import jobmaxxing.enrich_workday as cli
     from jobmaxxing.enrichment.workday import main
     assert cli.main is main
+
+
+def test_enrich_workday_selects_myworkdaysite_candidates(conn):
+    _insert(conn, dedupe_key="wd_jobs", url=_WD.format(tenant="acme", n=30))
+    _insert(conn, dedupe_key="wd_site",
+            url="https://wd3.myworkdaysite.com/recruiting/acme/Careers/job/NYC/Intern_R31")
+    counts = enrich_workday(conn, fetcher_factory=_OkFetcher)
+    assert counts["candidates"] == 2
+    assert counts["enriched"] == 2
+    row = conn.execute("select description from jobs where dedupe_key='wd_site'").fetchone()
+    assert row[0] == "<p>A real Workday JD with enough words</p>"

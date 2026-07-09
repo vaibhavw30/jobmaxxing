@@ -168,3 +168,43 @@ def test_unexpected_fetcher_error_is_transient_not_crash():
     assert out.kind == "transient"
     assert "ValueError" in out.error
     assert f.calls == ["plain"]
+
+
+def test_myworkdaysite_cxs_url_basic():
+    u = "https://wd3.myworkdaysite.com/recruiting/magna/Magna/job/Southfield-Michigan-US/Intern---Engineering-Optics_R00243622"
+    assert workday_cxs_url(u) == (
+        "https://magna.wd3.myworkdayjobs.com/wday/cxs/magna/Magna/job/"
+        "Southfield-Michigan-US/Intern---Engineering-Optics_R00243622"
+    )
+
+
+def test_myworkdaysite_cxs_url_strips_locale_prefix():
+    u = ("https://wd1.myworkdaysite.com/en-US/recruiting/parexel/Parexel_External_Careers/"
+         "job/United-Kingdom-Sheffield-Remote/Intern_R0000038395-1")
+    assert workday_cxs_url(u) == (
+        "https://parexel.wd1.myworkdayjobs.com/wday/cxs/parexel/Parexel_External_Careers/"
+        "job/United-Kingdom-Sheffield-Remote/Intern_R0000038395-1"
+    )
+
+
+def test_myworkdaysite_host():
+    u = "https://wd3.myworkdaysite.com/recruiting/magna/Magna/job/Southfield-Michigan-US/Intern---Engineering-Optics_R00243622"
+    assert workday_host(u) == "magna.wd3.myworkdayjobs.com"
+
+
+def test_myworkdaysite_and_myworkdayjobs_same_identity_are_equivalent():
+    # Same tenant/wd/site/rest via the two different public-domain shapes -> identical
+    # host/cxs output. This is the sharding + Cloudflare-clearance-reuse invariant.
+    site_url = "https://wd2.myworkdaysite.com/recruiting/acme/Careers/job/NYC/Intern_R1"
+    jobs_url = "https://acme.wd2.myworkdayjobs.com/Careers/job/NYC/Intern_R1"
+    assert workday_host(site_url) == workday_host(jobs_url) == "acme.wd2.myworkdayjobs.com"
+    assert workday_cxs_url(site_url) == workday_cxs_url(jobs_url) == (
+        "https://acme.wd2.myworkdayjobs.com/wday/cxs/acme/Careers/job/NYC/Intern_R1"
+    )
+
+
+def test_myworkdaysite_missing_recruiting_segment_is_none():
+    # Not the recognized shape (no "recruiting/" path segment) -> unrecognized, not mangled.
+    u = "https://wd2.myworkdaysite.com/acme/Careers/job/NYC/Intern_R1"
+    assert workday_host(u) is None
+    assert workday_cxs_url(u) is None
