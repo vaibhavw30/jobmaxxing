@@ -179,3 +179,36 @@ def test_clear_title_routes_with_all_budgets_zero():
     d = route_one("Software Engineer Intern", "api work", CONFIG, llm_complete=_llm_never,
                   budget=b, exhausted=True, title_budget=tb)
     assert d.resume_type == "swe" and d.method == "rules"
+
+
+def test_no_signal_with_jd_calls_classify_open_and_spends_main_budget():
+    # "Data Specialist Intern" / "work with data pipelines" matches no title_signal or jd_signal
+    # in CONFIG (swe/ai/mle only) -> route_by_rules returns no_signal, WITH a real description.
+    calls = []
+
+    def fake_llm(task, messages, **kw):
+        calls.append(1)
+        return '{"type": "mle", "confidence": 0.83}'
+
+    b = Budget(remaining=5)
+    d = route_one("Data Specialist Intern", "work with data pipelines", CONFIG,
+                  llm_complete=fake_llm, budget=b)
+    assert d.method == "llm_open" and d.resume_type == "mle" and d.confidence == 0.83
+    assert len(calls) == 1 and b.remaining == 4          # spent the MAIN budget, not title_budget
+
+
+def test_no_signal_with_jd_none_answer_is_not_target():
+    def fake_llm(task, messages, **kw):
+        return '{"type": "none", "confidence": 0.9}'
+    b = Budget(remaining=5)
+    d = route_one("Warehouse Associate", "load and unload trucks", CONFIG,
+                  llm_complete=fake_llm, budget=b)
+    assert d.method == "not_target" and d.resume_type is None
+
+
+def test_no_signal_with_jd_zero_budget_defers_without_llm():
+    b = Budget(remaining=0)
+    d = route_one("Data Specialist Intern", "work with data pipelines", CONFIG,
+                  llm_complete=_llm_never, budget=b)
+    assert d.resume_type is None and d.method is None
+    assert b.remaining == 0

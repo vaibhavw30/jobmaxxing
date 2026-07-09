@@ -108,8 +108,11 @@ def _classify_choices(config) -> list[str]:
     return [t for t in VALID_TYPES if t in config.get("types", {})] + ["none"]
 
 
-def build_classify_messages(title, config) -> list[dict]:
-    """Open classification prompt: pick one of the configured types, or 'none' (not a target role)."""
+def build_classify_messages(title, config, description=None) -> list[dict]:
+    """Open classification prompt: pick one of the configured types, or 'none' (not a target role).
+    With description=None (the default), the user message states no JD is available -- classify_title's
+    title-only case, byte-identical to before this parameter existed. With a description, the real JD is
+    embedded instead -- classify_open's JD-grounded case."""
     choices = _classify_choices(config)
     types_in_config = [c for c in choices if c != "none"]
     defs = "\n".join(f"- {t}: {config['types'][t].get('definition', '')}" for t in types_in_config)
@@ -120,7 +123,10 @@ def build_classify_messages(title, config) -> list[dict]:
         f'Respond with STRICT JSON only: {{"type": <one of: {allowed}>, "confidence": <0.0-1.0>}}. '
         "No prose, no code fences."
     )
-    user = f"Internship title (no job description available): {title}"
+    if description:
+        user = f"Title: {title}\n\nJob description:\n{description}"
+    else:
+        user = f"Internship title (no job description available): {title}"
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
@@ -138,3 +144,22 @@ def classify_title(title, *, llm_complete, config) -> RouteDecision:
     if t == "none":
         return RouteDecision(resume_type=None, method="not_target", confidence=0.0)
     return RouteDecision(resume_type=t, method="llm_title", confidence=min(conf, _TITLE_ROUTE_CONFIDENCE))
+
+
+def classify_open(title, description, *, llm_complete, config) -> RouteDecision:
+    """Open-classify a title+JD (rules found zero signal) -> method='llm_open' (a type) |
+    'not_target' ('none') | defer (LLM error/unparseable). Confidence is the LLM's raw value,
+    uncapped -- unlike classify_title/resolve_title_only, this call is grounded in a real JD,
+    trusted the same way resolve()'s JD-backed tiebreak already is."""
+    messages = build_classify_messages(title, config, description=description)
+    try:
+        text = llm_complete("route", messages, max_tokens=200, response_format={"type": "json_object"})
+    except LLMUnavailable:
+        return RouteDecision(resume_type=None, method=None, confidence=0.0)
+    parsed = parse_tiebreaker_response(text, _classify_choices(config))
+    if parsed is None:
+        return RouteDecision(resume_type=None, method=None, confidence=0.0)
+    t, conf = parsed
+    if t == "none":
+        return RouteDecision(resume_type=None, method="not_target", confidence=0.0)
+    return RouteDecision(resume_type=t, method="llm_open", confidence=conf)

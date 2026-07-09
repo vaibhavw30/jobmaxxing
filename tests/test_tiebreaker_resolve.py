@@ -86,7 +86,7 @@ def test_resolve_title_only_defers_on_unparseable_reply():
     assert d.method is None
 
 
-from jobmaxxing.routing.tiebreaker import build_classify_messages, classify_title
+from jobmaxxing.routing.tiebreaker import build_classify_messages, classify_title, classify_open
 
 _FULL_CONFIG = {
     "types": {t: {"definition": f"{t} work"} for t in
@@ -120,4 +120,47 @@ def test_classify_title_defers_when_llm_unavailable():
     def fake_llm(task, messages, **kw):
         raise LLMUnavailable("no provider")
     d = classify_title("Some Intern", llm_complete=fake_llm, config=_FULL_CONFIG)
+    assert d.method is None
+
+
+def test_build_classify_messages_embeds_real_jd_when_provided():
+    msgs = build_classify_messages("ML Intern", _FULL_CONFIG, description="Train models on GPUs.")
+    assert "Train models on GPUs." in msgs[1]["content"]
+    assert "no job description available" not in msgs[1]["content"]
+
+
+def test_build_classify_messages_defaults_to_title_only_placeholder():
+    # description=None (the default) -> byte-identical to classify_title's existing behavior.
+    msgs = build_classify_messages("ML Intern", _FULL_CONFIG)
+    assert "no job description available" in msgs[1]["content"]
+
+
+def test_classify_open_returns_llm_open_with_uncapped_confidence():
+    def fake_llm(task, messages, **kw):
+        return '{"type": "mle", "confidence": 0.83}'
+    d = classify_open("Data Specialist Intern", "work with data pipelines",
+                      llm_complete=fake_llm, config=_FULL_CONFIG)
+    assert d.resume_type == "mle" and d.method == "llm_open"
+    assert d.confidence == 0.83          # NOT capped at 0.4, unlike classify_title
+
+
+def test_classify_open_none_is_not_target():
+    def fake_llm(task, messages, **kw):
+        return '{"type": "none", "confidence": 0.9}'
+    d = classify_open("Warehouse Associate", "load and unload trucks",
+                      llm_complete=fake_llm, config=_FULL_CONFIG)
+    assert d.resume_type is None and d.method == "not_target"
+
+
+def test_classify_open_defers_when_llm_unavailable():
+    def fake_llm(task, messages, **kw):
+        raise LLMUnavailable("no provider")
+    d = classify_open("Some Intern", "some jd", llm_complete=fake_llm, config=_FULL_CONFIG)
+    assert d.method is None
+
+
+def test_classify_open_defers_on_unparseable_reply():
+    def fake_llm(task, messages, **kw):
+        return "not json at all"
+    d = classify_open("Some Intern", "some jd", llm_complete=fake_llm, config=_FULL_CONFIG)
     assert d.method is None

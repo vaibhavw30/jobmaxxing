@@ -194,3 +194,20 @@ def test_route_new_no_llm_routes_rules_and_defers_ambiguous(conn):
     assert swe == ("rules", "routed")
     ambig = conn.execute("select resume_type, route_method from jobs where dedupe_key='n|ambig'").fetchone()
     assert ambig == (None, None)
+
+
+def test_route_new_open_classifies_a_no_signal_jd_row(conn):
+    # "Data Specialist Intern" / "work with data pipelines" hits no title_signal or jd_signal in
+    # CONFIG (swe/ai/mle only) -> no_signal, but it HAS a description -> must now resolve via
+    # classify_open instead of deferring forever (the bug this task fixes).
+    _insert(conn, title="Data Specialist Intern", description="work with data pipelines",
+            dedupe_key="b|open", enrich_attempts=0)
+
+    def fake_llm(task, messages, **kw):
+        return '{"type": "mle", "confidence": 0.83}'
+
+    counts = route_new(conn, config=CONFIG, llm_complete=fake_llm)
+    assert counts["llm_open"] == 1 and counts["deferred"] == 0
+    row = conn.execute("select resume_type, route_method, route_confidence, status from jobs "
+                       "where dedupe_key='b|open'").fetchone()
+    assert row == ("mle", "llm_open", 0.83, "routed")

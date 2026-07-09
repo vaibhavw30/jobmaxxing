@@ -7,7 +7,7 @@ from ..config import load_settings
 from ..llm.client import complete as llm_complete_default
 from .config import load_routing_config
 from .rules import route_by_rules
-from .tiebreaker import classify_title, resolve, resolve_title_only
+from .tiebreaker import classify_open, classify_title, resolve, resolve_title_only
 from .types import VALID_TYPES, Budget, RouteDecision
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,9 @@ def route_one(
     """Route a single posting. Title-first deterministic; the LLM resolves ambiguous JD-bearing
     rows. When `exhausted` (enrichment gave up, no JD) and a `title_budget` remains, route on the
     title alone instead of deferring forever — tiebreaking among rule candidates, or open-classifying
-    a no-signal title (which a non-internship title short-circuits to `not_target` with no LLM call)."""
+    a no-signal title (which a non-internship title short-circuits to `not_target` with no LLM call).
+    When rules find NO signal at all but a real JD exists, open-classify against the JD instead of
+    deferring forever (spends the main `budget`, not `title_budget`)."""
     outcome = route_by_rules(title, description, config)
     if outcome.decision == "routed":
         return RouteDecision(resume_type=outcome.resume_type, method="rules", confidence=outcome.confidence)
@@ -48,6 +50,9 @@ def route_one(
                 return RouteDecision(resume_type=None, method="not_target", confidence=0.0)
             title_budget.remaining -= 1
             return classify_title(title, llm_complete=llm_complete, config=config)
+        if description and budget.remaining > 0:
+            budget.remaining -= 1
+            return classify_open(title, description, llm_complete=llm_complete, config=config)
         return _DEFER
 
     # ambiguous
@@ -97,7 +102,8 @@ def route_new(conn: psycopg.Connection, *, config=None, llm_complete=None, max_l
     rows = conn.execute(
         f"select id, title, description, enrich_attempts from jobs where {where}"
     ).fetchall()
-    counts = {"rules": 0, "llm": 0, "llm_title": 0, "not_target": 0, "deferred": 0, "manual_skipped": 0}
+    counts = {"rules": 0, "llm": 0, "llm_title": 0, "llm_open": 0, "not_target": 0, "deferred": 0,
+             "manual_skipped": 0}
     routed_updates: list[tuple] = []      # (resume_type, method, confidence, id) -> status='routed'
     nontarget_updates: list[tuple] = []   # (id,) -> route_method='not_target' only
 
