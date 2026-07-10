@@ -1,5 +1,8 @@
 # jobmaxxing — core feed ingestion
 
+[![ci](https://github.com/vaibhavw30/jobmaxxing/actions/workflows/ci.yml/badge.svg)](https://github.com/vaibhavw30/jobmaxxing/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Auto-updating, deduped Postgres feed of internship postings. Phase 1 of the
 recruiting pipeline (see `docs/PRD.md`, `docs/TECHNICAL_IMPLEMENTATION_PLAN.md`,
 and `docs/superpowers/specs/2026-06-11-core-feed-ingestion-design.md`).
@@ -176,8 +179,17 @@ gentler on home IPs than datacenter ones):
 It selects Workday rows still missing a description, fetches each via a tiered strategy
 (plain cxs JSON → headless-cleared-context → headless render+intercept), and writes
 descriptions back to the same database the CI pipeline uses. It is bounded (`max_jobs`
-per run) and resumable — re-run it to drain the backlog. Blocked tenants are retried up
-to a cap, then left alone.
+per run, default 300) and resumable — re-run it to drain the backlog. A tenant that makes
+zero progress in a run (blocked at every tier for all its jobs) is put on a 1-hour cooldown
+so the next run doesn't waste a batch re-hammering it; a tenant making any progress is left
+alone. Blocked tenants are retried up to a cap, then left alone permanently.
+
+To keep draining without manually re-running it every ~15-20 min, use the looping wrapper —
+it keeps invoking the worker (pausing `SLEEP_SECS`, default 30s, between runs), stays awake
+via `caffeinate` even if the screen sleeps, logs to `logs/enrich_workday_loop.log`, and stops
+itself once a run reports zero remaining candidates:
+
+    nohup ./scripts/enrich_workday_loop.sh > /dev/null 2>&1 &
 
 To measure real-world yield or to run the live end-to-end test:
 
@@ -401,3 +413,7 @@ recorded fixtures in `tests/fixtures/` — the real Simplify/Greenhouse/Lever/As
 payloads should be spot-checked once (they were authored, not captured). The routing
 signal dictionaries (`config/routing.yaml`) and the tailoring keyword rubrics
 (`rubrics/{type}.json`) are seed values to tune against real jobs.
+
+## License
+
+[MIT](LICENSE)
