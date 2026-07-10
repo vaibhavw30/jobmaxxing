@@ -141,22 +141,61 @@ def _default_fetcher_factory():
     return PlaywrightFetcher()
 
 
-def enrich_workday(conn, *, max_jobs=300, max_workers=3, cap=3, fetcher_factory=_default_fetcher_factory):
+def _cooling_down_tenants(conn) -> set[str]:
+    rows = conn.execute(
+        "select tenant from workday_tenant_cooldown where blocked_until > now()"
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
+def _update_cooldowns(conn, shards: dict[str, list], outcomes_by_id: dict, cooldown_seconds: int) -> None:
+    """A shard that enriched nothing and had at least one transient (blocked) outcome made
+    zero progress this run -- cool it down so the next run doesn't re-hammer it for free.
+    A shard with any progress (>=1 enriched) is left alone even if some jobs still failed."""
+    stuck_tenants = []
+    for tenant, jobs in shards.items():
+        if not tenant:
+            continue
+        kinds = [outcomes_by_id[jid].kind for jid, _url in jobs]
+        if kinds.count("enriched") == 0 and "transient" in kinds:
+            stuck_tenants.append(tenant)
+    if not stuck_tenants:
+        return
+    with conn.transaction(), conn.cursor() as cur:
+        cur.executemany(
+            "insert into workday_tenant_cooldown (tenant, blocked_until) "
+            "values (%s, now() + make_interval(secs => %s)) "
+            "on conflict (tenant) do update set blocked_until = excluded.blocked_until",
+            [(tenant, cooldown_seconds) for tenant in stuck_tenants],
+        )
+
+
+def enrich_workday(conn, *, max_jobs=300, max_workers=3, cap=3, fetcher_factory=_default_fetcher_factory,
+                    cooldown_seconds=3600):
     """Local worker: enrich description-less Workday rows via the tiered headless fetch.
 
     Jobs are sharded by tenant host so each shard runs on one thread-local fetcher and reuses
-    that tenant's Cloudflare clearance. Returns {enriched, permanent_failed, transient_failed,
-    candidates}."""
-    rows = conn.execute(
+    that tenant's Cloudflare clearance. A tenant shard that makes zero progress in a run (fully
+    blocked) is excluded from candidate selection for `cooldown_seconds`, so repeated runs don't
+    keep re-hammering a tenant that's still blocked. Returns {enriched, permanent_failed,
+    transient_failed, candidates}."""
+    cooling_down = _cooling_down_tenants(conn)
+    all_rows = conn.execute(
         "select id, url from jobs "
         "where coalesce(description, '') = '' "
         "and route_method is distinct from 'manual' "
         "and enrich_attempts < %s "
         "and url ~* 'myworkdayjobs\\.com|myworkdaysite\\.com' "
-        "order by scraped_at desc "
-        "limit %s",
-        (cap, max_jobs),
+        "order by scraped_at desc",
+        (cap,),
     ).fetchall()
+    rows = []
+    for job_id, url in all_rows:
+        if (workday_host(url) or "") in cooling_down:
+            continue
+        rows.append((job_id, url))
+        if len(rows) == max_jobs:
+            break
     if not rows:
         return {"enriched": 0, "permanent_failed": 0, "transient_failed": 0, "candidates": 0}
 
@@ -183,6 +222,8 @@ def enrich_workday(conn, *, max_jobs=300, max_workers=3, cap=3, fetcher_factory=
 
     counts = _apply_outcomes(conn, outcomes, cap=cap)
     counts["candidates"] = len(rows)
+    outcomes_by_id = {o.job_id: o for o in outcomes}
+    _update_cooldowns(conn, shards, outcomes_by_id, cooldown_seconds)
     logger.info("enrich_workday summary: %s", counts)
     return counts
 

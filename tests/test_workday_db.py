@@ -139,3 +139,77 @@ def test_enrich_workday_selects_myworkdaysite_candidates(conn):
     assert counts["enriched"] == 2
     row = conn.execute("select description from jobs where dedupe_key='wd_site'").fetchone()
     assert row[0] == "<p>A real Workday JD with enough words</p>"
+
+
+class _AllBlockedFetcher:
+    """Blocked at every tier for every job -> transient (blocked at all tiers)."""
+    def fetch_plain(self, cxs_url):
+        from jobmaxxing.enrichment.workday import WorkdayBlocked
+        raise WorkdayBlocked("403")
+    def fetch_via_context(self, host, cxs_url):
+        from jobmaxxing.enrichment.workday import WorkdayBlocked
+        raise WorkdayBlocked("403")
+    def fetch_via_render(self, job_url):
+        from jobmaxxing.enrichment.workday import WorkdayBlocked
+        raise WorkdayBlocked("403")
+
+
+def test_enrich_workday_cools_down_fully_blocked_tenant(conn):
+    _insert(conn, dedupe_key="stuck1", url=_WD.format(tenant="stuck", n=40))
+
+    first = enrich_workday(conn, fetcher_factory=_AllBlockedFetcher, cap=5)
+    assert first["candidates"] == 1
+    assert first["transient_failed"] == 1
+
+    # A fresh job on an unrelated tenant, added after "stuck" was cooled down.
+    _insert(conn, dedupe_key="fresh1", url=_WD.format(tenant="fresh", n=41))
+
+    # Even an always-succeeding fetcher must NOT get a chance at the cooled-down tenant.
+    second = enrich_workday(conn, fetcher_factory=_OkFetcher, cap=5)
+    assert second["candidates"] == 1                     # only "fresh1", "stuck" is cooling down
+    row = conn.execute("select description from jobs where dedupe_key='stuck1'").fetchone()
+    assert row[0] == ""                                   # untouched -- excluded from selection
+    row2 = conn.execute("select description from jobs where dedupe_key='fresh1'").fetchone()
+    assert row2[0] == "<p>A real Workday JD with enough words</p>"
+
+
+def test_enrich_workday_no_cooldown_when_tenant_makes_progress(conn):
+    _insert(conn, dedupe_key="mixed_a", url=_WD.format(tenant="mixed", n=50))
+    _insert(conn, dedupe_key="mixed_b", url=_WD.format(tenant="mixed", n=51))
+
+    class _OneOkOneBlockedFetcher:
+        def fetch_plain(self, cxs_url):
+            from jobmaxxing.enrichment.workday import WorkdayBlocked
+            if "R50" in cxs_url:
+                return _PAYLOAD
+            raise WorkdayBlocked("403")
+        def fetch_via_context(self, host, cxs_url):
+            from jobmaxxing.enrichment.workday import WorkdayBlocked
+            raise WorkdayBlocked("403")
+        def fetch_via_render(self, job_url):
+            from jobmaxxing.enrichment.workday import WorkdayBlocked
+            raise WorkdayBlocked("403")
+
+    first = enrich_workday(conn, fetcher_factory=_OneOkOneBlockedFetcher, cap=5)
+    assert first["enriched"] == 1
+    assert first["transient_failed"] == 1
+
+    # "mixed" made progress (one enriched) -> not cooled down -> the remaining
+    # unresolved job must still be selectable next run.
+    second = enrich_workday(conn, fetcher_factory=_OkFetcher, cap=5)
+    assert second["candidates"] == 1
+    assert second["enriched"] == 1
+
+
+def test_enrich_workday_cooldown_expires(conn):
+    from jobmaxxing.enrichment.workday import workday_host
+    url = _WD.format(tenant="expired", n=60)
+    _insert(conn, dedupe_key="expired1", url=url)
+    conn.execute(
+        "insert into workday_tenant_cooldown (tenant, blocked_until) values (%s, now() - interval '1 hour')",
+        (workday_host(url),),
+    )
+    conn.commit()
+    counts = enrich_workday(conn, fetcher_factory=_OkFetcher, cap=5)
+    assert counts["candidates"] == 1
+    assert counts["enriched"] == 1
