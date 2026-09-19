@@ -21,6 +21,7 @@ _Last updated: 2026-07-08._
 | **JobSpy discovery** (Indeed/LinkedIn via `python-jobspy`) | ✅ Merged | ⚠️ Operator hasn't run the first live scrape yet |
 | **Gmail LinkedIn-alert parser** (IMAP, saved-search alerts) | ✅ Merged | ⚠️ Operator hasn't run the first live IMAP fetch yet |
 | **Local nightly scheduling** ("production cron", launchd) | ✅ Merged | ⚠️ Operator hasn't installed the LaunchAgent yet |
+| **AWS migration** (ECR + scheduled Fargate + Secrets Manager + S3 IAM role) | 🚧 In progress | Docker image + env-only config done; see README "AWS migration" |
 | **Phase 6 — Form-fill assist** (human-gated) | 🔲 Not designed | Optional, last phase; see §4 |
 
 **One-line status:** every phase through 5 is built and merged; Phase 3 tailoring has now actually been
@@ -42,7 +43,7 @@ These are manual, one-time, and independent of further coding:
    not produce a usable PDF for any real job.
 2. **Install the nightly scheduler** — `cp scripts/com.jobmaxxing.nightly.plist ~/Library/LaunchAgents/`,
    edit the paths, `launchctl bootstrap gui/$(id -u) …`. Runs the residential-IP workers at 12am +
-   notifies. (See the README "Nightly scheduling" section.)
+   notifies. (See "Nightly scheduling" in [`OPERATIONS.md`](OPERATIONS.md).)
 3. **Run the first JobSpy scrape** — `uv sync --extra discovery && uv run python -m jobmaxxing.discover_jobspy`
    on your home IP; confirm `jobspy:*` rows land in triage with working links.
 4. **Run the first Gmail alert fetch** — create LinkedIn saved searches (one per role) with daily email
@@ -114,4 +115,4 @@ CI on schedule. Tailoring is local + operator-gated (cost control), never automa
 - **Most recent:** JobSpy discovery (`2026-07-02-jobspy-discovery*`), local nightly scheduling
   (`2026-07-07-local-scheduling*`), Gmail alert parser (`2026-07-07-gmail-alert-parser*`), the five-axis
   tailoring scorer (`2026-07-08-five-axis-scorer*`)
-- **How to run everything:** `README.md`
+- **How to run everything:** [`OPERATIONS.md`](OPERATIONS.md)
