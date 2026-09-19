@@ -1,0 +1,390 @@
+# Operations guide
+
+How to set up, run, and schedule every stage of jobmaxxing. For what the project is and how it works, start with the [README](../README.md).
+
+## Setup
+
+1. **Provision Supabase.** Create a free Supabase project. Copy the Postgres
+   connection string (Project Settings → Database → Connection string).
+2. **Local env.** `cp .env.example .env` and set `DATABASE_URL`.
+3. **Install.** `uv sync`
+4. **Migrate.** `uv run python -m jobmaxxing.migrate`
+5. **CI secret.** In the GitHub repo: Settings → Secrets and variables → Actions
+   → add `DATABASE_URL`. The repo is public, so the pollers workflow runs only on
+   `schedule`/`workflow_dispatch` (never fork PRs), so the secret is never exposed.
+
+## Adding a watch-list company
+
+Edit `config/watchlist.yaml`:
+
+```yaml
+companies:
+  - company: "Example Corp"
+    ats: greenhouse        # greenhouse | lever | ashby
+    token: examplecorp     # public board slug / token
+```
+
+Invalid or incomplete entries are skipped with a warning, so a typo never aborts a run.
+
+## Running
+
+- Manually: `uv run python -m jobmaxxing.run`
+- Scheduled: `.github/workflows/pollers.yml` runs every 3 hours.
+
+A run logs per-source ingested/merged/skipped counts plus a summary; a failing
+source is logged and skipped (the run still exits 0). A DB/config error (bad
+`DATABASE_URL`) fails the run loudly — that's an operator setup error, not a
+transient source failure.
+
+## Nightly digest email
+
+`uv run python -m jobmaxxing.report` prints a daily digest (new in-window roles in
+the last 24h, the undecided backlog, and the manual-capture queue size). Add
+`--email` to send it. `.github/workflows/nightly-report.yml` runs it once a day
+(12:00 UTC) so the digest lands in your inbox.
+
+Email goes over generic SMTP, so Gmail or Outlook both work — pick a sending
+account and add these repo **secrets** (`DATABASE_URL` already exists):
+
+| Secret | Gmail | Outlook |
+|--------|-------|---------|
+| `SMTP_HOST` | `smtp.gmail.com` | `smtp.office365.com` |
+| `SMTP_USER` | your address | your address |
+| `SMTP_PASS` | an **app password** (Google Account → Security → App passwords; a normal password won't work with 2FA) | an app password |
+| `REPORT_TO` | recipient(s), comma-separated — can include both your Gmail and Outlook | |
+| `SMTP_PORT` | optional, defaults to `587` | |
+| `SMTP_FROM` | optional, defaults to `SMTP_USER` | |
+
+Trigger it on demand from the Actions tab (**nightly-report → Run workflow**) to
+test before waiting for the schedule.
+
+## Querying the feed
+
+Use the Supabase SQL editor / table browser. Convenience view:
+
+```sql
+select * from active_unrouted;   -- active postings not yet routed, newest first
+```
+
+## Tests
+
+```bash
+uv run pytest
+```
+
+The store/pipeline/runner tests use `pytest-postgresql`, which needs a local
+PostgreSQL **server** binary (`initdb`/`pg_ctl`) on your `PATH`:
+
+- macOS: `brew install postgresql` then ensure its `bin/` is on `PATH`
+  (e.g. `export PATH="$(brew --prefix postgresql)/bin:$PATH"` — adjust the
+  version suffix to whatever brew installed, e.g. `postgresql@16`).
+- CI installs PostgreSQL automatically (see `.github/workflows/ci.yml`).
+
+## Routing
+
+After ingestion, postings are classified into one of 8 resume types
+(`quant-trader, quant-dev, mle, swe, fdse, ai, robotics, av`).
+
+- Run: `uv run python -m jobmaxxing.route` (full LLM). **Scheduled routing is split to cut LLM cost:**
+  `pollers.yml` runs `route --no-llm` every 3h (deterministic rules only, no LLM spend — rule-matched
+  jobs appear within hours), and `llm-route.yml` runs the full `route` (LLM tiebreak + title-routing)
+  every ~4 days over the accumulated ambiguous jobs. So ambiguous postings are classified within ~4
+  days; rule-matched postings stay fresh. Add `--no-llm` locally to route without any LLM calls.
+- **Deterministic first:** title signals are authoritative; a JD-keyword tie-break
+  resolves most of the rest. The LLM is a bounded, schema-gated fallback used only
+  for ambiguous postings that have a job description, and its answer is always
+  validated against the type set (or it falls back to the deterministic pick). Each
+  run logs the `rules` / `llm` / `deferred` split — tune `config/routing.yaml` to
+  push `llm` down.
+- **Manual override:** `uv run python -m jobmaxxing.route set <job_id> <type>`
+  (sets `route_method='manual'`; automated routing never overwrites manual rows).
+- **LLM keys:** set `OPENAI_API_KEY` / `XAI_API_KEY` / `ANTHROPIC_API_KEY` (env locally,
+  GitHub Actions secrets in CI). Provider order and models are configured in
+  `config/llm.yaml`; a provider with no key is simply skipped, so routing still works
+  on the deterministic rules alone even with no LLM keys set.
+
+## Tailoring
+
+For a job the operator has approved, produce a tailored one-page résumé with a
+deterministic before/after keyword-coverage score and LLM weakness/missing-keyword
+feedback. **Operator-gated and run locally** — never automatic (cost control).
+
+### LLM cost: tailoring uses your Claude subscription
+
+The local tailoring step (`python -m jobmaxxing.tailor`) prefers the `claude-cli` provider —
+it shells to `claude -p` on your **Claude subscription** instead of spending API tokens. Make
+sure the `claude` CLI is installed and **logged in to your subscription** (`claude` then `/login`).
+The adapter strips the API-billing credentials (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`) from
+the call so it can't accidentally bill the API, and runs the CLI tool-restricted (no Bash/Write/
+Edit) so injected JD text can't drive it. If the CLI is absent (e.g. CI) or errors, the pipeline
+automatically falls back to the API. Routing stays on the cheap API model. Optional check:
+`JOBMAXXING_E2E=1 uv run pytest tests/test_llm_claude_cli_e2e.py -v`.
+
+Setup:
+- Install a LaTeX distribution providing `pdflatex` (e.g. MacTeX/TeX Live).
+- Create an S3 bucket; set `S3_BUCKET` and the standard `AWS_*` credentials.
+- Upload one base résumé per resume type to `s3://<bucket>/base/{type}/main.tex`
+  (types: `quant-trader, quant-dev, mle, swe, fdse, ai, robotics, av`). The tailoring
+  engine ships; the base résumé content is yours.
+- Tune `rubrics/{type}.json` (the deterministic keyword dictionaries) over time.
+
+Use:
+- Approve: `uv run python -m jobmaxxing.tailor approve <job_id>` (sets `approved_for_tailoring`).
+- Tailor: `uv run python -m jobmaxxing.tailor <job_id>` — runs the two-pass loop and writes
+  `tailored.tex`, `tailored.pdf`, `review.json`, `diff.txt` to `s3://<bucket>/tailored/{job_id}/`,
+  sets `score_before`/`score_after` and `status=tailored`.
+- Review: `uv run python -m jobmaxxing.tailor review <job_id>` prints the artifact location.
+
+The improvement score (keyword coverage) and the one-page check are computed in code, never
+self-reported by the model. The human reviews the diff and moves the job to `applied`.
+
+## Conversational interface (MCP)
+
+Drive the whole pipeline from Claude Code via an MCP server — no dashboard.
+
+- Register it: the repo ships `.mcp.json` (runs `uv run python -m jobmaxxing.mcp`); point Claude
+  Code at this project so it launches the server. It reads `DATABASE_URL`, `S3_BUCKET`, `AWS_*`,
+  and the LLM keys from the environment / `.env`. The `tailor_job` tool needs `pdflatex` locally.
+- Tools: `query_jobs` (filter by status/type/company/recency), `preview_route` (stored route, or
+  `rerun` to preview live), `set_route` (manual override), `approve` (gate for tailoring),
+  `tailor_job` (run the loop — slow, ~30-120s), `get_review` (fetch review.json + diff), and
+  `set_status` (move through the funnel incl. `applied`/`rejected`).
+- Typical flow in chat: `query_jobs(status="routed")` -> `approve(<id>)` -> `tailor_job(<id>)` ->
+  `get_review(<id>)` -> review the diff -> `set_status(<id>, "applied")`.
+- Funnel at a glance (Supabase SQL editor): `select * from funnel_counts;` and
+  `select * from review_queue;`.
+
+## Workday enrichment (local, operator-run)
+
+Workday job pages are Cloudflare-gated, so their descriptions are fetched by a **local**
+headless-browser worker (kept out of CI). One-time setup:
+
+    uv sync --extra headless
+    uv run playwright install chromium
+
+Then enrich description-less Workday rows (residential IP recommended — Cloudflare is
+gentler on home IPs than datacenter ones):
+
+    uv run python -m jobmaxxing.enrich_workday
+
+It selects Workday rows still missing a description, fetches each via a tiered strategy
+(plain cxs JSON → headless-cleared-context → headless render+intercept), and writes
+descriptions back to the same database the CI pipeline uses. It is bounded (`max_jobs`
+per run, default 300) and resumable — re-run it to drain the backlog. A tenant that makes
+zero progress in a run (blocked at every tier for all its jobs) is put on a 1-hour cooldown
+so the next run doesn't waste a batch re-hammering it; a tenant making any progress is left
+alone. Blocked tenants are retried up to a cap, then left alone permanently.
+
+To keep draining without manually re-running it every ~15-20 min, use the looping wrapper —
+it keeps invoking the worker (pausing `SLEEP_SECS`, default 30s, between runs), stays awake
+via `caffeinate` even if the screen sleeps, logs to `logs/enrich_workday_loop.log`, and stops
+itself once a run reports zero remaining candidates:
+
+    nohup ./scripts/enrich_workday_loop.sh > /dev/null 2>&1 &
+
+To measure real-world yield or to run the live end-to-end test:
+
+    uv run --extra headless python scripts/spike_workday.py 30
+    JOBMAXXING_E2E=1 uv run --extra headless pytest tests/test_workday_e2e.py -v
+
+### Nightly operator queue (MCP)
+
+For Workday jobs neither the headless worker nor find-elsewhere could enrich, the MCP surfaces a
+nightly worklist:
+
+- `nightly_queue` — relevant, still-JD-less jobs to grab by hand. Open each in your own (non-bot)
+  browser, read the JD, then `set_description(job_id, "<the JD text>")` — it stores the JD and
+  resets routing so the next poll classifies it with the JD, ready to approve + tailor.
+- `query_jobs(jd_source="recovered")` — list the auto-recovered JDs to spot-check; `reject_recovered(job_id)`
+  discards a wrong one and returns the job to the nightly queue.
+
+### JD recovery (find-elsewhere, local)
+
+For Workday jobs that can't be enriched, run the recovery worker LOCALLY (residential IP — it
+free-searches DuckDuckGo and reads `JobPosting` JSON-LD from aggregators/company sites):
+
+    uv run python -m jobmaxxing.recover_jd
+
+It targets relevant (title-routed), description-less Workday rows, accepts a JD only on a
+req-id/back-link match or an LLM-confirmed fuzzy match, writes it with `jd_source='recovered'`
+(flagged for review), and resets routing so the next poll re-routes it with the real JD.
+Optional live check: `JOBMAXXING_E2E=1 uv run pytest tests/test_recover_e2e.py -v`.
+
+### JobSpy discovery (local, operator-run)
+
+Pull internship postings from the big job boards (Indeed + LinkedIn by default) with the free
+[JobSpy](https://github.com/speedyapply/JobSpy) library. **Run LOCALLY on a residential IP** — the
+boards 429 datacenter IPs, so this is never in CI.
+
+    uv sync --extra discovery
+    uv run python -m jobmaxxing.discover_jobspy
+
+It reads `config/jobspy.yaml` (sites, search terms seeded from the 8 resume types, `results_wanted`,
+US-wide + remote, `job_type: internship`), scrapes each (site, term), and ingests results into the same
+`jobs` table as the CI pollers — deduped by `company|title`. Indeed rows (and LinkedIn with
+`linkedin_fetch_description`) arrive with descriptions, so they route immediately. Fail-soft: one
+site/term getting rate-limited never blocks the rest. Space out runs to avoid 429s (LinkedIn is the
+touchiest — its `results_wanted` is kept small).
+
+### Gmail LinkedIn alerts (local, operator-run)
+
+Ingest your LinkedIn **saved-search job-alert emails** into the `jobs` table — the only LinkedIn channel
+the pipeline touches (no logged-in scraping). **Run LOCALLY**: it reads your inbox over IMAP with a Gmail
+App Password, which stays in your local `.env` and never in CI.
+
+One-time setup:
+1. Create LinkedIn saved searches (one per role) with **daily email alerts**.
+2. Turn on 2-Step Verification, then mint a Gmail **App Password** at
+   https://myaccount.google.com/apppasswords and enable IMAP (Gmail Settings > Forwarding and POP/IMAP).
+3. Set `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD` in `.env` (see `.env.example`).
+
+Run:
+
+    uv run python -m jobmaxxing.discover_gmail
+
+It fetches alert emails from the last `GMAIL_SINCE_DAYS` (default 7), parses each listed posting into a
+link-only row (`source=gmail:linkedin-alert`, `term=<saved-search phrase>`, no JD), and ingests via the
+shared dedupe/upsert. Rows are routable on title and get a real description later if the same job arrives
+from an ATS/GitHub source. Fail-soft (one bad email never blocks the rest) and idempotent (re-reads a
+rolling window each run). It also runs automatically as the first worker in the nightly scheduler.
+
+### URL verification (local)
+
+`uv run python -m jobmaxxing.verify_url` checks that the in-window triaged jobs' posting URLs still
+resolve. When a URL is dead (404/410), it tries the job's other known URLs, then searches the web for
+the same posting (reusing the recovery engine) and promotes a confidently-matched, working link to the
+primary `url` (folding the dead one into `alt_urls`). When nothing resolves, it marks `url_status='dead'`
+— the triage table shows a "⚠ dead link" marker and sinks the row to the bottom.
+
+Run LOCALLY (DuckDuckGo rate-limits datacenter IPs), like `recover_jd`. Re-checks each job every ~14
+days; a dead row stays dead (verify_attempts hits the cap) until re-run with a higher cap.
+
+### Nightly scheduling (local, macOS)
+
+Run the residential-IP workers automatically once a night via launchd — "the production cron."
+At 12am local time it runs, in order, `discover_gmail` → `discover_jobspy` → `enrich_workday` →
+`recover_jd` → `verify_url` (sequentially, so only one worker uses your home IP at a time), then posts one
+macOS notification with a recap. Nothing here runs in CI.
+
+One-time setup:
+
+    uv sync --extra headless --extra discovery
+    uv run playwright install chromium                       # for enrich_workday
+    cp scripts/com.jobmaxxing.nightly.plist ~/Library/LaunchAgents/
+    # edit ~/Library/LaunchAgents/com.jobmaxxing.nightly.plist:
+    #   - ProgramArguments[0]  -> output of `which uv`
+    #   - WorkingDirectory     -> this repo's absolute path
+    #   - Standard{Out,Error}Path -> /Users/<you>/Library/Logs/jobmaxxing/launchd.{out,err}
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jobmaxxing.nightly.plist
+
+`StartCalendarInterval` uses the Mac's **local** time (12am ET when your timezone is Eastern) and
+**catches up on wake** if the laptop slept through midnight. Per-run logs land in
+`~/Library/Logs/jobmaxxing/nightly-*.log` (pruned after 14 days). Run it by hand any time with:
+
+    uv run python -m jobmaxxing.nightly
+
+To remove the schedule: `launchctl bootout gui/$(id -u)/com.jobmaxxing.nightly`.
+
+### Local triage table (recommended)
+
+Interactive web table to triage routed jobs — no Google account, no auth, localhost only. Writes
+straight to Postgres; re-running your local `tailor` picks up approved jobs automatically.
+
+Setup: `uv sync --extra web`
+
+Run:
+
+    uv run --extra web python -m jobmaxxing.web
+
+Then open `http://127.0.0.1:8765` in a browser. Set `WEB_PORT` to change the port.
+
+The table shows routed jobs (those with a `resume_type`), newest first, defaulting to the
+undecided view. Decision semantics:
+
+- **Interested** → `approved_for_tailoring` (queues the job for your local `tailor` run)
+- **Not interested** → `rejected`
+- **Applied** → `applied`
+- **↺ reset** → back to `routed`
+
+Security posture: binds to `127.0.0.1` only, single-user, JSON-only POST with Host-header
+allowlist — no external network exposure.
+
+### Job decision sheet (Google Sheets, two-way) — superseded by the local triage table
+
+*Superseded by the Local triage table above; kept for reference. Requires adding yourself as an
+OAuth test user on the Google consent screen.*
+
+Triage routed jobs in a spreadsheet instead of one MCP call at a time. One-time setup (auth as
+**yourself** via Application Default Credentials — no service account, no key file, no sharing;
+Google's "Secure by Default" policy blocks service-account keys on most new projects anyway):
+
+1. In a Google Cloud project, enable the **Google Sheets API** and the **Google Drive API**.
+2. Install gcloud (`brew install --cask google-cloud-sdk`) and authorize once:
+   `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/drive`
+   (if it errors on a quota project: `gcloud auth application-default set-quota-project <PROJECT_ID>`).
+3. Create a Google Sheet in your own account; set `GSHEET_ID` (the id in its URL) in `.env`, leave
+   `GOOGLE_SERVICE_ACCOUNT_FILE` blank; `uv sync --extra sheets`.
+
+(Service-account auth is still supported: set `GOOGLE_SERVICE_ACCOUNT_FILE` to a JSON key path and
+share the sheet with the account's email — but key creation is often org-policy-blocked, so ADC is the default.)
+
+Then sync (locally, or the `sync_sheet` MCP tool): `uv run --extra sheets python -m jobmaxxing.sync_sheet`.
+It pushes routed jobs (company, title, JD, status, …) into the sheet and pulls your decision columns
+back into the funnel: **interested = Yes** → queued for tailoring, **No** → rejected, **applied** → applied.
+Mark jobs in the sheet, re-run the sync, then your local `tailor` run picks up the interested ones.
+
+## Docker / AWS portability
+
+The repo ships a production-lean multi-stage Dockerfile for the **core pipeline** stages
+(`run`, `enrich`, `route`, `migrate`, `recover_jd`, `web`).
+Heavy local-only stages (`enrich_workday` = Playwright, `tailor` = pdflatex) are out of scope.
+
+### Build
+
+```bash
+docker build -t jobmaxxing .
+```
+
+### Run a stage
+
+All configuration is injected at runtime via environment variables — no secrets are baked in.
+
+```bash
+# Apply migrations
+docker run --rm -e DATABASE_URL=postgres://user:pass@host:5432/db \
+  jobmaxxing -m jobmaxxing.migrate
+
+# Run pollers
+docker run --rm -e DATABASE_URL=postgres://... \
+  jobmaxxing -m jobmaxxing.run
+
+# Route with LLM fallback (LLM keys optional — deterministic rules still work without them)
+docker run --rm \
+  -e DATABASE_URL=postgres://... \
+  -e OPENAI_API_KEY=sk-... \
+  -e ANTHROPIC_API_KEY=... \
+  jobmaxxing -m jobmaxxing.route
+
+# Local web triage table
+docker run --rm \
+  -e DATABASE_URL=postgres://... \
+  -p 8765:8765 \
+  jobmaxxing -m jobmaxxing.web
+```
+
+### In-scope vs out-of-scope
+
+| Stage | In image | Notes |
+|-------|----------|-------|
+| `migrate` | Yes | |
+| `run` (pollers) | Yes | |
+| `enrich` | Yes | |
+| `route` | Yes | LLM keys optional |
+| `recover_jd` | Yes | |
+| `web` | Yes | Flask; `--extra web` |
+| `enrich_workday` | No | Requires Playwright/Chromium |
+| `tailor` | No | Requires pdflatex/TeX Live |
+
+### AWS path
+
+The AWS migration (ECR, scheduled Fargate tasks, Secrets Manager, S3 via IAM role) is in progress. See [AWS migration](../README.md#aws-migration-in-progress) in the README for the plan and current status, and `superpowers/specs/2026-06-16-dockerfile-aws-portability-design.md` for the full design.

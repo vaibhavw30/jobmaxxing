@@ -1,7 +1,7 @@
 [project]
 name = "jobmaxxing"
 version = "0.1.0"
-description = "Internship recruiting pipeline - core feed ingestion"
+description = "Internship recruiting pipeline: job scraping, dedupe, routing, and LLM résumé tailoring"
 license = { text = "MIT" }
 requires-python = ">=3.12,<3.13"
 dependencies = [
